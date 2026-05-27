@@ -1,7 +1,15 @@
 # Data (재배포 금지 - AI Hub 약관)
 data/
+028.*/
 *.zip
 *.tar.gz
+
+# Logs
+logs/
+tmp_train.txt
+
+# Claude Code 내부 파일
+.claude/
 
 # Models
 *.pth
