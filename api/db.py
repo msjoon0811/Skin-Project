@@ -1,7 +1,7 @@
 """SQLite 기반 분석 기록 + 회원 인증 저장.
 
 테이블:
-  users      id, email, password_hash, created_at
+  users      id, username, password_hash, created_at
   sessions   token, user_id, created_at
   analyses   id, user_id, created_at, composite, skin_label, attributes
 """
@@ -28,7 +28,7 @@ def init_db() -> None:
         con.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                email        TEXT    NOT NULL UNIQUE,
+                username     TEXT    NOT NULL UNIQUE,
                 password_hash TEXT   NOT NULL,
                 created_at   TEXT    NOT NULL
             )
@@ -56,6 +56,7 @@ def init_db() -> None:
         for col_sql in [
             "ALTER TABLE analyses ADD COLUMN user_id INTEGER",
             "ALTER TABLE analyses ADD COLUMN full_data TEXT",
+            "ALTER TABLE users RENAME COLUMN email TO username",
         ]:
             try:
                 con.execute(col_sql)
@@ -69,33 +70,33 @@ def _hash_password(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
 
 
-def register_user(email: str, password: str) -> dict:
-    """신규 가입 → {"id", "email"} 반환. 이메일 중복 시 ValueError."""
+def register_user(username: str, password: str) -> dict:
+    """신규 가입 → {"id", "username"} 반환. 아이디 중복 시 ValueError."""
     salt = secrets.token_hex(16)
     pwd_hash = f"{salt}:{_hash_password(password, salt)}"
     with _conn() as con:
         try:
             cur = con.execute(
-                "INSERT INTO users (email, password_hash, created_at) VALUES (?,?,?)",
-                (email, pwd_hash, datetime.now().isoformat()),
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?,?,?)",
+                (username, pwd_hash, datetime.now().isoformat()),
             )
-            return {"id": cur.lastrowid, "email": email}
+            return {"id": cur.lastrowid, "username": username}
         except sqlite3.IntegrityError:
-            raise ValueError("이미 사용 중인 이메일입니다.")
+            raise ValueError("이미 사용 중인 아이디입니다.")
 
 
-def login_user(email: str, password: str) -> dict | None:
-    """로그인 시도 → {"id", "email"} 또는 None."""
+def login_user(username: str, password: str) -> dict | None:
+    """로그인 시도 → {"id", "username"} 또는 None."""
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash FROM users WHERE email=?", (email,)
+            "SELECT id, username, password_hash FROM users WHERE username=?", (username,)
         ).fetchone()
     if not row:
         return None
     salt, stored = row["password_hash"].split(":", 1)
     if _hash_password(password, salt) != stored:
         return None
-    return {"id": row["id"], "email": row["email"]}
+    return {"id": row["id"], "username": row["username"]}
 
 
 def create_session(user_id: int) -> str:
@@ -110,10 +111,10 @@ def create_session(user_id: int) -> str:
 
 
 def get_session_user(token: str) -> dict | None:
-    """토큰 → {"id", "email"} 또는 None."""
+    """토큰 → {"id", "username"} 또는 None."""
     with _conn() as con:
         row = con.execute(
-            """SELECT u.id, u.email FROM users u
+            """SELECT u.id, u.username FROM users u
                JOIN sessions s ON s.user_id = u.id
                WHERE s.token=?""",
             (token,),
@@ -162,6 +163,18 @@ def get_analysis_detail(analysis_id: int, user_id: int | None = None) -> dict | 
     return json.loads(row["full_data"])
 
 
+def delete_analysis(analysis_id: int, user_id: int | None = None) -> bool:
+    """분석 기록 삭제. user_id가 있으면 소유권 확인 후 삭제."""
+    with _conn() as con:
+        if user_id is not None:
+            cur = con.execute(
+                "DELETE FROM analyses WHERE id=? AND user_id=?", (analysis_id, user_id)
+            )
+        else:
+            cur = con.execute("DELETE FROM analyses WHERE id=?", (analysis_id,))
+        return cur.rowcount > 0
+
+
 def get_history(limit: int = 20, user_id: int | None = None) -> list[dict]:
     """최근 분석 기록 반환 (최신순). user_id 있으면 해당 유저만."""
     with _conn() as con:
@@ -183,7 +196,7 @@ def get_history(limit: int = 20, user_id: int | None = None) -> list[dict]:
         result.append({
             "id":        row["id"],
             "date":      row["created_at"],
-            "label":     f"피부 분석 #{row['id']}",
+            "label":     "피부 분석",
             "score":     row["composite"],
             "skinLabel": row["skin_label"],
             "delta":     (f"+{delta}" if delta >= 0 else str(delta)) if delta is not None else None,

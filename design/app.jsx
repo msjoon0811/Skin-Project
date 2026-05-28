@@ -5,6 +5,7 @@ const App = () => {
   const [token, setToken]         = React.useState(null);
   const [analysisData, setAnalysisData] = React.useState(null);
   const [historyList, setHistoryList]   = React.useState([]);
+  const [clinicData, setClinicData]     = React.useState(null);
 
   const go = (s) => { window.scrollTo({top:0, behavior:'instant'}); setScreen(s); };
 
@@ -74,14 +75,18 @@ const App = () => {
               <button className={"nav-tab " + (screen === 'dashboard' ? 'active' : '')} onClick={() => go('dashboard')}>홈</button>
               <button className={"nav-tab " + (screen === 'analyze'   ? 'active' : '')} onClick={() => go('analyze')}>분석</button>
               <button className={"nav-tab " + (screen === 'results'   ? 'active' : '')} onClick={() => go('results')}>리포트</button>
+              <button className={"nav-tab " + (screen === 'clinic'    ? 'active' : '')} onClick={() => go('clinic')}
+                style={{display:'flex', alignItems:'center', gap:5}}>
+                <Icon name="clinic" size={13}/>피부과 시술
+              </button>
             </nav>
           </div>
           <div className="nav-right">
             <button className="nav-tab" title="알림"><Icon name="bell" size={16}/></button>
             <button className="nav-tab" title="설정"><Icon name="settings" size={16}/></button>
-            <div className="avatar" title={user?.email || ''} onClick={handleLogout}
+            <div className="avatar" onClick={handleLogout}
               style={{cursor:'pointer'}} title="클릭하면 로그아웃">
-              {(user?.email?.[0] || '?').toUpperCase()}
+              {(user?.username?.[0] || '?').toUpperCase()}
             </div>
           </div>
         </header>
@@ -111,6 +116,14 @@ const App = () => {
           data={analysisData}
           onRestart={() => go('analyze')}
           onHome={() => go('dashboard')}
+          onGoClinic={() => go('clinic')}
+        />
+      )}
+      {screen === 'clinic' && (
+        <Clinic
+          analysisData={analysisData}
+          onGoAnalyze={() => go('analyze')}
+          authHeaders={authHeaders()}
         />
       )}
     </div>

@@ -1,15 +1,15 @@
 // Login / Register screen — 실제 API 연동
 const LoginScreen = ({ onLogin }) => {
-  const [mode, setMode]     = React.useState('login');   // 'login' | 'register'
-  const [email, setEmail]   = React.useState('');
-  const [pw, setPw]         = React.useState('');
-  const [pw2, setPw2]       = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError]   = React.useState('');
+  const [mode, setMode]         = React.useState('login');   // 'login' | 'register'
+  const [username, setUsername] = React.useState('');
+  const [pw, setPw]             = React.useState('');
+  const [pw2, setPw2]           = React.useState('');
+  const [loading, setLoading]   = React.useState(false);
+  const [error, setError]       = React.useState('');
 
   const validate = () => {
-    if (!email.includes('@')) return '올바른 이메일 주소를 입력하세요.';
-    if (pw.length < 6)        return '비밀번호는 6자 이상이어야 합니다.';
+    if (username.trim().length < 2) return '아이디는 2자 이상이어야 합니다.';
+    if (pw.length < 6)              return '비밀번호는 6자 이상이어야 합니다.';
     if (mode === 'register' && pw !== pw2) return '비밀번호가 일치하지 않습니다.';
     return '';
   };
@@ -26,7 +26,7 @@ const LoginScreen = ({ onLogin }) => {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password: pw }),
+        body: JSON.stringify({ username: username.trim(), password: pw }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -45,7 +45,7 @@ const LoginScreen = ({ onLogin }) => {
   const switchMode = () => {
     setMode(m => m === 'login' ? 'register' : 'login');
     setError('');
-    setPw(''); setPw2('');
+    setPw(''); setPw2(''); setUsername('');
   };
 
   return (
@@ -79,15 +79,15 @@ const LoginScreen = ({ onLogin }) => {
             <div className="muted" style={{fontSize:13}}>
               {mode === 'login'
                 ? '분석 기록을 이어서 보거나 새 분석을 시작하세요.'
-                : '이메일과 비밀번호로 계정을 만들어 분석 기록을 저장하세요.'}
+                : '아이디와 비밀번호로 계정을 만들어 분석 기록을 저장하세요.'}
             </div>
           </div>
 
           <div className="field">
-            <label className="field-label">이메일</label>
-            <input className="input" type="email" value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com" autoComplete="email" />
+            <label className="field-label">아이디</label>
+            <input className="input" type="text" value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="아이디 입력" autoComplete="username" />
           </div>
 
           <div className="field">

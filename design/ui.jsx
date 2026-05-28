@@ -17,6 +17,10 @@ const Icon = ({ name, size = 16, stroke = 1.6 }) => {
     cross: <path d="M6 6l12 12M6 18L18 6"/>,
     upload: <><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></>,
     info: <><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></>,
+    clinic: <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/><path d="M12 7v4M10 9h4"/></>,
+    trash: <><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></>,
+    chevronDown: <path d="M6 9l6 6 6-6"/>,
+    chevronUp: <path d="M18 15l-6-6-6 6"/>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

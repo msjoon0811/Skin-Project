@@ -1,6 +1,23 @@
+// 식약처 제품명 자동 띄어쓰기 (하이픈 정규화 + 제품 키워드 분리)
+const formatProductName = (name) => {
+  if (!name) return '';
+  let r = name.replace(/-/g, ' ').replace(/·/g, ' ');
+  const kws = [
+    '화이트닝','브라이트닝','리프팅','주름개선','탄력','미백','진정','수분',
+    '모공수축','모공','수축','필링','클렌징','트리트먼트','재생','안티에이징',
+    '앰플','에센스','세럼','크림','토너','로션','마스크','스크럽','패드',
+    '쿠션','미스트','오일','젤','밤','스틱','선크림','아이크림','팩','폼',
+  ].sort((a, b) => b.length - a.length);
+  kws.forEach(kw => {
+    r = r.replace(new RegExp('([가-힣])(' + kw + ')', 'g'), '$1 $2');
+  });
+  return r.trim().replace(/\s+/g, ' ');
+};
+
 // Results: 실제 API 데이터 표시 (없으면 mock 데이터 fallback)
 const Results = ({ data, onRestart, onHome }) => {
   const today = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'·').replace('.','');
+  const [productData, setProductData] = React.useState({});
 
   // API 데이터 or mock fallback — data가 존재하면 API 결과를 그대로 사용(빈 배열 포함)
   const attrs       = data ? (data.attributes || ATTRIBUTES)            : ATTRIBUTES;
@@ -12,6 +29,29 @@ const Results = ({ data, onRestart, onHome }) => {
   const cautionIngs = data ? (data.caution_ingredients || [])           : [];
   const products    = data ? (data.products || [])                      : PRODUCTS;
   const mlAvailable = data ? data.ml_available : false;
+
+  // 제품 이미지·가격·링크 로딩
+  // 서버(네이버 추천)에서 이미 포함된 경우 바로 사용, 없으면 별도 조회
+  React.useEffect(() => {
+    if (!products || products.length === 0) return;
+    products.forEach((p, i) => {
+      if (p.image || p.link) {
+        setProductData(prev => ({...prev, [i]: {
+          image: p.image || null,
+          price: p.price || null,
+          link:  p.link  || null,
+        }}));
+        return;
+      }
+      // 식약처 폴백 제품 — 네이버에서 별도 조회
+      const q = encodeURIComponent((p.name || '').trim());
+      const b = encodeURIComponent((p.brand || '').trim());
+      fetch('/api/product/search?q=' + q + '&brand=' + b)
+        .then(r => r.json())
+        .then(d => { if (d.image || d.price) setProductData(prev => ({...prev, [i]: d})); })
+        .catch(() => {});
+    });
+  }, [products.length]);
 
   const radarValues = attrs.map(a => a.value);
   const radarLabels = attrs.map(a => a.short);
@@ -213,79 +253,127 @@ const Results = ({ data, onRestart, onHome }) => {
             {products.map((p, i) => {
               const r = parseReason(p.reason);
               const rc = rankColors[i] || rankColors[2];
+              const pd = productData[i] || {};
+              const naverUrl = pd.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'') + ' ' + (p.name||''))}`;
+              const formattedName = formatProductName(p.name);
+              const displayPrice = p.price || pd.price || null;
               return (
                 <div key={i} className="product-card">
-                  {/* 제품 썸네일 */}
+                  {/* 썸네일 */}
                   <div style={{
                     aspectRatio:'4/3', background: rc.bg,
                     position:'relative', display:'flex',
                     alignItems:'flex-end', padding:12,
-                    justifyContent:'space-between',
+                    justifyContent:'space-between', overflow:'hidden',
                   }}>
-                    {/* 순위 뱃지 */}
+                    {pd.image && (
+                      <img src={pd.image} alt={p.name}
+                        style={{position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover'}}
+                        onError={e => { e.target.style.display='none'; }}
+                      />
+                    )}
+                    {!pd.image && <>
+                      <div style={{
+                        position:'absolute', right:-8, bottom:-20,
+                        fontSize:90, fontFamily:'var(--serif)',
+                        fontStyle:'italic', color:'rgba(255,255,255,0.18)',
+                        lineHeight:1, userSelect:'none', pointerEvents:'none',
+                      }}>
+                        {(p.name||p.brand||'S')[0]}
+                      </div>
+                      <div style={{
+                        position:'absolute', top:10, right:12,
+                        fontFamily:'var(--mono)', fontSize:9.5,
+                        letterSpacing:'0.1em', textTransform:'uppercase',
+                        color:'rgba(255,255,255,0.65)',
+                      }}>{(p.brand||'').slice(0,14)}</div>
+                    </>}
+                    <div style={{
+                      position:'absolute', inset:0,
+                      background: pd.image ? 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' : 'none',
+                    }}/>
                     <span style={{
                       background: rc.badge, color:'white',
                       fontFamily:'var(--mono)', fontSize:10.5,
                       padding:'4px 10px', borderRadius:999,
-                      letterSpacing:'0.08em',
+                      letterSpacing:'0.08em', zIndex:1, position:'relative',
                     }}>
                       {['1ST', '2ND', '3RD'][i] || `${i+1}TH`}
                     </span>
-                    <span className="match">MATCH · {p.match}%</span>
+                    <span className="match" style={{zIndex:1, position:'relative',
+                      color: pd.image ? 'rgba(255,255,255,0.9)' : undefined}}>
+                      MATCH · {p.match}%
+                    </span>
                   </div>
 
                   <div className="product-body">
                     <span className="product-brand">{p.brand || '식약처 기능성'}</span>
-                    <span className="product-name" style={{lineHeight:1.35}}>{p.name}</span>
+                    <span className="product-name" style={{
+                      wordBreak:'keep-all', overflowWrap:'anywhere', lineHeight:1.45,
+                    }}>{formattedName}</span>
 
-                    {/* 고민 태그 */}
                     <div className="product-tags" style={{marginTop:6}}>
                       {(p.tags || []).map((t, j) => (
                         <span key={j} className={"product-tag " + (j === 0 ? 'green' : '')}>{t}</span>
                       ))}
                     </div>
 
-                    {/* 구조화된 설명 */}
-                    <div style={{marginTop:10, display:'flex', flexDirection:'column', gap:6}}>
-                      {r.rank && (
-                        <div style={{
-                          fontSize:11, fontFamily:'var(--mono)', color: rc.badge,
-                          letterSpacing:'0.06em',
-                        }}>{r.rank}</div>
-                      )}
-                      {r.ingredients && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--good-soft)',
-                          fontSize:12, color:'var(--good)', lineHeight:1.5,
-                        }}>
-                          <strong>핵심 성분</strong><br/>{r.ingredients}
-                        </div>
-                      )}
-                      {r.avoid && !r.avoid.startsWith('사용법') && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--warn-soft)',
-                          fontSize:12, color:'var(--warn)', lineHeight:1.5,
-                        }}>
-                          <strong>주의 성분 확인</strong><br/>{r.avoid}
-                        </div>
-                      )}
-                      {r.usage && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--surface-2)',
-                          borderLeft:'2px solid var(--accent)',
-                          fontSize:12, color:'var(--ink-2)', lineHeight:1.5,
-                        }}>
-                          <strong>사용법</strong><br/>{r.usage.replace('사용법: ','')}
-                        </div>
-                      )}
-                    </div>
+                    {/* 추천 이유 */}
+                    {r.desc && (
+                      <div style={{marginTop:10, fontFamily:'var(--serif-ko)', fontSize:13.5, lineHeight:1.75, color:'var(--ink-2)'}}>
+                        {r.desc}
+                      </div>
+                    )}
 
-                    <div className="product-foot" style={{marginTop:'auto', paddingTop:12}}>
-                      <span className="product-price">{p.price || '가격 문의'}</span>
-                      <button className="btn btn-outline btn-sm">자세히 <Icon name="arrowRight" size={12}/></button>
+                    {/* 추천 키워드 / 성분 */}
+                    {r.ingredients && !r.ingredients.startsWith('네이버') && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--good-soft)',
+                        display:'flex', alignItems:'flex-start', gap:8,
+                      }}>
+                        <Icon name="leaf" size={13} style={{flexShrink:0, marginTop:2, color:'var(--good)'}}/>
+                        <div>
+                          <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--good)', letterSpacing:'0.06em', marginBottom:3}}>추천 키워드</div>
+                          <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--good)', lineHeight:1.6}}>{r.ingredients}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 사용법 */}
+                    {r.usage && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--surface)', borderLeft:'3px solid var(--accent)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--accent-ink)', letterSpacing:'0.06em', marginBottom:3}}>사용법</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{r.usage.replace('사용법: ', '')}</div>
+                      </div>
+                    )}
+
+                    {/* 주의 성분 */}
+                    {r.avoid && !r.avoid.startsWith('사용법') && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--warn-soft)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--warn)', letterSpacing:'0.06em', marginBottom:3}}>주의 성분</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--warn)', lineHeight:1.65}}>{r.avoid}</div>
+                      </div>
+                    )}
+
+                    {/* 가격 + 구매 버튼 */}
+                    <div className="product-foot" style={{marginTop:'auto', paddingTop:14}}>
+                      {displayPrice && (
+                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>
+                          {displayPrice}
+                        </span>
+                      )}
+                      <a href={naverUrl} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                        style={{textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6}}>
+                        <Icon name="arrowRight" size={13}/> 구매하러 가기
+                      </a>
                     </div>
                   </div>
                 </div>

@@ -1,316 +1,264 @@
-// 성분 하이브리드 카드 (전성분 검사 + 성분 사전)
-const IngHybrid = ({ avoidList, recList }) => {
-  const [tab, setTab]               = React.useState('scanner');
-  const [scanText, setScanText]     = React.useState('');
+// 성분 통합 카드 — 전성분 검사 + 성분 사전 한 번에
+const IngUnified = ({ avoidList, recList }) => {
+  const [input, setInput]           = React.useState('');
   const [hits, setHits]             = React.useState(null);
-  const [ingDetails, setIngDetails] = React.useState({});
-  const [loadingIng, setLoadingIng] = React.useState(null);
-  const [expanded, setExpanded]     = React.useState({});
-  const [dictQuery, setDictQuery]   = React.useState('');
   const [dictResult, setDictResult] = React.useState(null);
-  const [dictLoading, setDictLoading] = React.useState(false);
+  const [dictName, setDictName]     = React.useState('');
+  const [loading, setLoading]       = React.useState(false);
+  const [ingDetails, setIngDetails] = React.useState({});
+  const [expanded, setExpanded]     = React.useState({});
 
-  const scan = () => {
-    const lower = scanText.toLowerCase();
-    const found   = avoidList.filter(i => lower.includes(i.name.toLowerCase()));
-    const present = recList.filter(i => lower.includes(i.name.toLowerCase()));
-    const missing = recList.filter(i => !lower.includes(i.name.toLowerCase()));
-    setHits({ found, present, missing });
-    setExpanded({});
-  };
+  const isFullList = (txt) => txt.includes(',') || txt.includes('\n') || txt.length > 60;
 
-  const fetchIngDetail = async (name) => {
+  const fetchDict = async (name) => {
     const key = 'd_' + name;
     if (ingDetails[name]) { setExpanded(e => ({...e, [key]: !e[key]})); return; }
-    setLoadingIng(name);
+    setExpanded(e => ({...e, [key]: 'loading'}));
     try {
       const res  = await fetch(`/api/ingredient/${encodeURIComponent(name)}`);
       const data = await res.json();
       setIngDetails(d => ({...d, [name]: data}));
       setExpanded(e => ({...e, [key]: true}));
-    } catch {}
-    finally { setLoadingIng(null); }
+    } catch { setExpanded(e => ({...e, [key]: false})); }
   };
 
-  const dictLookup = async () => {
-    if (!dictQuery.trim()) return;
-    setDictLoading(true); setDictResult(null);
-    try {
-      const res = await fetch(`/api/ingredient/${encodeURIComponent(dictQuery.trim())}`);
-      setDictResult(await res.json());
-    } catch { setDictResult({ description: '정보를 불러올 수 없습니다.', benefits: [], concerns: [] }); }
-    finally { setDictLoading(false); }
+  const analyze = async () => {
+    const txt = input.trim();
+    if (!txt) return;
+    setLoading(true); setHits(null); setDictResult(null);
+
+    if (isFullList(txt)) {
+      // 전성분 모드
+      const lower = txt.toLowerCase();
+      const found   = avoidList.filter(i => lower.includes(i.name.toLowerCase()));
+      const present = recList.filter(i => lower.includes(i.name.toLowerCase()));
+      const missing = recList.filter(i => !lower.includes(i.name.toLowerCase()));
+      setHits({ found, present, missing });
+      setExpanded({});
+    } else {
+      // 단일 성분 사전 모드
+      setDictName(txt);
+      try {
+        const res  = await fetch(`/api/ingredient/${encodeURIComponent(txt)}`);
+        const data = await res.json();
+        setDictResult(data);
+        // 동시에 피부 적합 여부도 확인 (avoid/rec 리스트 기준)
+        const lower = txt.toLowerCase();
+        const inAvoid = avoidList.filter(i => lower.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(lower));
+        const inRec   = recList.filter(i => lower.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(lower));
+        setHits({ found: inAvoid, present: inRec, missing: [] });
+      } catch {}
+    }
+    setLoading(false);
   };
 
   const renderDetail = (detail) => (
-    <div style={{padding:'10px 14px 14px', background:'var(--surface-2)',
-      fontSize:12.5, color:'var(--ink-2)', lineHeight:1.65}}>
-      <div style={{marginBottom:6}}>{detail.description}</div>
-      {detail.benefits && detail.benefits.length > 0 && (
-        <div style={{marginBottom:4}}>
-          <span style={{fontSize:11, fontWeight:600, color:'var(--good)'}}>효과: </span>
-          {detail.benefits.join(' · ')}
+    <div style={{padding:'8px 14px 12px', background:'var(--surface-2)', fontSize:12.5, color:'var(--ink-2)', lineHeight:1.65}}>
+      <div style={{marginBottom:5}}>{detail.description}</div>
+      {detail.benefits?.length > 0 && (
+        <div style={{marginBottom:3}}>
+          <span style={{fontSize:11, fontWeight:600, color:'var(--good)'}}>효과: </span>{detail.benefits.join(' · ')}
         </div>
       )}
-      {detail.concerns && detail.concerns.length > 0 && (
-        <div>
-          <span style={{fontSize:11, fontWeight:600, color:'var(--warn)'}}>주의: </span>
-          {detail.concerns.join(' · ')}
-        </div>
+      {detail.concerns?.length > 0 && (
+        <div><span style={{fontSize:11, fontWeight:600, color:'var(--warn)'}}>주의: </span>{detail.concerns.join(' · ')}</div>
       )}
     </div>
   );
+
+  const renderIngRow = (ing, idx, colorKey) => {
+    const dk = 'd_' + ing.name;
+    const isWarn = colorKey === 'warn';
+    return (
+      <div key={idx} style={{borderTop: idx > 0 ? `1px solid ${isWarn ? 'rgba(168,80,51,0.1)' : 'rgba(91,117,83,0.1)'}` : 'none'}}>
+        <div onClick={() => fetchDict(ing.name)} style={{
+          display:'grid', gridTemplateColumns:'1fr auto auto', gap:10,
+          alignItems:'center', padding:'9px 14px', cursor:'pointer',
+          background: expanded[dk] ? (isWarn ? 'rgba(243,221,211,0.35)' : 'rgba(227,234,222,0.35)') : 'var(--surface)',
+        }}>
+          <div>
+            <span style={{fontWeight:600, fontSize:13}}>{ing.name}</span>
+            {ing.tag && <span className="pill" style={{marginLeft:7,
+              background: isWarn ? 'var(--warn-soft)' : 'var(--good-soft)',
+              color: isWarn ? 'var(--warn)' : 'var(--good)', fontSize:10}}>{ing.tag}</span>}
+          </div>
+          <span style={{fontSize:12, color:'var(--ink-muted)'}}>{ing.why}</span>
+          <Icon name={expanded[dk]==='loading'?'sparkle':expanded[dk]?'cross':'plus'} size={12}/>
+        </div>
+        {expanded[dk] === true && ingDetails[ing.name] && renderDetail(ingDetails[ing.name])}
+      </div>
+    );
+  };
 
   return (
     <div className="card">
       <div className="section-head" style={{marginBottom:12}}>
         <div>
           <div className="eyebrow">성분 분석 · INGREDIENTS</div>
-          <h2 className="h2-serif" style={{margin:'4px 0 0'}}>성분표 검사 · 성분 사전</h2>
+          <h2 className="h2-serif" style={{margin:'4px 0 0'}}>성분 검사 · 사전</h2>
         </div>
+        <span className="muted" style={{fontSize:12}}>단일 성분명 또는 전성분 붙여넣기</span>
       </div>
 
-      {/* 탭 */}
-      <div style={{display:'flex', gap:6, marginBottom:16, paddingBottom:14,
-        borderBottom:'1px solid var(--line-2)'}}>
-        {[['scanner','전성분 검사','flask'],['dict','성분 사전','info']].map(([id, label, icon]) => (
-          <button key={id}
-            className={'btn btn-sm ' + (tab===id ? 'btn-primary' : 'btn-ghost')}
-            onClick={() => setTab(id)}
-            style={{borderRadius:999, display:'flex', alignItems:'center', gap:5}}>
-            <Icon name={icon} size={12}/> {label}
-          </button>
-        ))}
+      <div style={{fontSize:12.5, color:'var(--ink-muted)', marginBottom:10}}>
+        성분 하나를 입력하면 <strong>사전 정보</strong>를,
+        제품 전성분을 붙여넣으면 <strong>주의·권장 성분 검사</strong>를 동시에 해드려요.
       </div>
 
-      {/* ── 전성분 검사 ── */}
-      {tab === 'scanner' && (
-        <>
-          {avoidList.length === 0 && recList.length === 0 && (
-            <div style={{padding:'10px 14px', borderRadius:10, background:'var(--accent-soft)',
-              color:'var(--accent-ink)', fontSize:12.5, marginBottom:10}}>
-              피부 분석을 완료하면 개인 맞춤 성분 검사가 가능해요. 지금도 전성분 붙여넣기는 가능합니다.
+      <div style={{display:'flex', gap:8, alignItems:'flex-start'}}>
+        <textarea className="input" rows={3}
+          placeholder={'성분명 하나  →  나이아신아마이드\n전성분 붙여넣기  →  Water, Glycerin, Niacinamide, Ethanol...'}
+          value={input}
+          onChange={e => { setInput(e.target.value); setHits(null); setDictResult(null); }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !isFullList(input)) { e.preventDefault(); analyze(); }}}
+          style={{flex:1, resize:'vertical', fontSize:12.5, minHeight:72}}
+        />
+        <button className="btn btn-primary btn-sm" onClick={analyze}
+          disabled={loading || !input.trim()}
+          style={{marginTop:2, flexShrink:0, display:'flex', alignItems:'center', gap:5}}>
+          {loading ? <><span className="spinner" style={{borderColor:'rgba(255,255,255,0.3)', borderTopColor:'white'}}/> 분석 중</> : <><Icon name="flask" size={13}/> 분석</>}
+        </button>
+      </div>
+
+      {/* 단일 성분 사전 결과 */}
+      {dictResult && (
+        <div style={{marginTop:14, padding:'14px 16px', borderRadius:12,
+          background:'var(--surface-2)', border:'1px solid var(--line-2)'}}>
+          <div style={{fontFamily:'var(--serif-ko)', fontSize:16, fontWeight:500, marginBottom:6}}>{dictName}</div>
+          <div style={{fontSize:13, color:'var(--ink-2)', lineHeight:1.7, marginBottom:10}}>{dictResult.description}</div>
+          {dictResult.benefits?.length > 0 && (
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:11.5, fontWeight:600, color:'var(--good)', marginBottom:4}}>효과</div>
+              <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
+                {dictResult.benefits.map((b,i) => (
+                  <span key={i} style={{padding:'3px 9px', borderRadius:999, background:'var(--good-soft)', color:'var(--good)', fontSize:12}}>{b}</span>
+                ))}
+              </div>
             </div>
           )}
-          <div style={{fontSize:12.5, color:'var(--ink-muted)', marginBottom:10}}>
-            제품 뒷면의 전성분을 붙여넣으면 주의 성분 여부와 권장 성분 포함 여부를 확인해드려요.
+          {dictResult.concerns?.length > 0 && (
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:11.5, fontWeight:600, color:'var(--warn)', marginBottom:4}}>주의사항</div>
+              <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
+                {dictResult.concerns.map((c,i) => (
+                  <span key={i} style={{padding:'3px 9px', borderRadius:999, background:'var(--warn-soft)', color:'var(--warn)', fontSize:12}}>{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:8}}>
+            {dictResult.suitable_for && (
+              <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface)', border:'1px solid var(--line-2)'}}>
+                <div style={{fontSize:10.5, color:'var(--ink-faint)', marginBottom:2}}>적합 피부</div>
+                <div style={{fontSize:12.5, fontWeight:500}}>{dictResult.suitable_for}</div>
+              </div>
+            )}
+            {dictResult.found_in && (
+              <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface)', border:'1px solid var(--line-2)'}}>
+                <div style={{fontSize:10.5, color:'var(--ink-faint)', marginBottom:2}}>주사용 제품</div>
+                <div style={{fontSize:12.5, fontWeight:500}}>{dictResult.found_in}</div>
+              </div>
+            )}
           </div>
-          <textarea className="input" rows={4}
-            placeholder="예) Water, Glycerin, Niacinamide, Ethanol, Fragrance..."
-            value={scanText}
-            onChange={e => { setScanText(e.target.value); setHits(null); }}
-            style={{width:'100%', resize:'vertical', fontSize:12.5}}
-          />
-          <button className="btn btn-primary btn-sm" onClick={scan}
-            disabled={!scanText.trim()} style={{marginTop:8}}>
-            <Icon name="flask" size={13}/> 성분 검사하기
-          </button>
-
-          {hits && (
-            <div style={{marginTop:14, display:'flex', flexDirection:'column', gap:10}}>
-              {/* 주의 성분 */}
-              {hits.found.length === 0 ? (
-                <div style={{padding:'10px 14px', borderRadius:10, background:'var(--good-soft)',
-                  color:'var(--good)', fontSize:13, fontWeight:500, display:'flex', alignItems:'center', gap:6}}>
-                  <Icon name="check" size={13}/> 주의 성분이 발견되지 않았어요
-                </div>
-              ) : (
-                <div style={{borderRadius:10, border:'1px solid var(--warn-soft)', overflow:'hidden'}}>
-                  <div style={{padding:'10px 14px', background:'var(--warn-soft)',
-                    display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <span style={{fontWeight:600, color:'var(--warn)', fontSize:13}}>주의 성분 {hits.found.length}개 발견</span>
-                    <span style={{fontFamily:'var(--mono)', fontSize:10.5, color:'var(--warn)'}}>클릭하면 상세 정보</span>
-                  </div>
-                  {hits.found.map((ing, idx) => {
-                    const dk = 'd_' + ing.name;
-                    return (
-                      <div key={idx} style={{borderTop:'1px solid rgba(168,80,51,0.12)'}}>
-                        <div onClick={() => fetchIngDetail(ing.name)}
-                          style={{display:'grid', gridTemplateColumns:'1fr auto auto', gap:10,
-                            alignItems:'center', padding:'10px 14px', cursor:'pointer',
-                            background: expanded[dk] ? 'rgba(243,221,211,0.4)' : 'var(--surface)'}}>
-                          <div>
-                            <span style={{fontWeight:600, fontSize:13}}>{ing.name}</span>
-                            <span className="pill" style={{marginLeft:8, background:'var(--warn-soft)',
-                              color:'var(--warn)', fontSize:10}}>{ing.tag}</span>
-                          </div>
-                          <span style={{fontSize:12, color:'var(--ink-muted)'}}>{ing.why}</span>
-                          <Icon name={loadingIng===ing.name?'sparkle':expanded[dk]?'cross':'plus'} size={12}/>
-                        </div>
-                        {expanded[dk] && ingDetails[ing.name] && renderDetail(ingDetails[ing.name])}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* 권장 성분 포함 */}
-              {hits.present.length > 0 && (
-                <div style={{borderRadius:10, border:'1px solid var(--good-soft)', overflow:'hidden'}}>
-                  <div style={{padding:'10px 14px', background:'var(--good-soft)',
-                    display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <span style={{fontWeight:600, color:'var(--good)', fontSize:13}}>권장 성분 {hits.present.length}개 포함</span>
-                    <span style={{fontFamily:'var(--mono)', fontSize:10.5, color:'var(--good)'}}>클릭하면 효능 확인</span>
-                  </div>
-                  {hits.present.map((ing, idx) => {
-                    const dk = 'd_' + ing.name;
-                    return (
-                      <div key={idx} style={{borderTop:'1px solid rgba(91,117,83,0.12)'}}>
-                        <div onClick={() => fetchIngDetail(ing.name)}
-                          style={{display:'grid', gridTemplateColumns:'1fr auto auto', gap:10,
-                            alignItems:'center', padding:'10px 14px', cursor:'pointer',
-                            background: expanded[dk] ? 'rgba(227,234,222,0.4)' : 'var(--surface)'}}>
-                          <div>
-                            <span style={{fontWeight:600, fontSize:13}}>{ing.name}</span>
-                            <span className="pill" style={{marginLeft:8, background:'var(--good-soft)',
-                              color:'var(--good)', fontSize:10}}>{ing.tag}</span>
-                          </div>
-                          <span style={{fontSize:12, color:'var(--ink-muted)'}}>{ing.why}</span>
-                          <Icon name={loadingIng===ing.name?'sparkle':expanded[dk]?'cross':'plus'} size={12}/>
-                        </div>
-                        {expanded[dk] && ingDetails[ing.name] && renderDetail(ingDetails[ing.name])}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* 권장 성분 미포함 */}
-              {hits.missing.length > 0 && (
-                <div style={{padding:'10px 14px', borderRadius:10, background:'var(--bg-2)',
-                  border:'1px solid var(--line-2)'}}>
-                  <div style={{fontWeight:500, color:'var(--ink-2)', fontSize:12.5, marginBottom:8}}>
-                    이 제품에 없는 권장 성분 ({hits.missing.length}개) — 성분명 클릭 시 정보 확인
-                  </div>
-                  <div style={{display:'flex', flexDirection:'column', gap:4}}>
-                    {hits.missing.map((ing, idx) => {
-                      const dk = 'd_' + ing.name;
-                      return (
-                        <div key={idx}>
-                          <div onClick={() => fetchIngDetail(ing.name)}
-                            style={{display:'flex', justifyContent:'space-between', alignItems:'center',
-                              fontSize:12.5, cursor:'pointer', padding:'4px 0'}}>
-                            <span style={{fontWeight:500}}>{ing.name}
-                              <span className="pill" style={{marginLeft:6, fontSize:10}}>{ing.tag}</span>
-                            </span>
-                            <span style={{color:'var(--ink-muted)', fontSize:11.5,
-                              display:'flex', alignItems:'center', gap:4}}>
-                              {ing.why}
-                              <Icon name={loadingIng===ing.name?'sparkle':expanded[dk]?'cross':'plus'} size={11}/>
-                            </span>
-                          </div>
-                          {expanded[dk] && ingDetails[ing.name] && renderDetail(ingDetails[ing.name])}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
 
-      {/* ── 성분 사전 ── */}
-      {tab === 'dict' && (
-        <>
-          <div style={{fontSize:12.5, color:'var(--ink-muted)', marginBottom:10}}>
-            궁금한 화장품 성분 이름을 입력하면 설명, 효과, 주의사항을 알려드려요.
-          </div>
-          <div style={{display:'flex', gap:8}}>
-            <input className="input" value={dictQuery}
-              onChange={e => setDictQuery(e.target.value)}
-              onKeyDown={e => e.key==='Enter' && dictLookup()}
-              placeholder="성분명 입력 (예: 나이아신아마이드)"
-              style={{flex:1, fontSize:13}}/>
-            <button className="btn btn-outline btn-sm" onClick={dictLookup}
-              disabled={dictLoading || !dictQuery.trim()}>
-              {dictLoading ? '…' : <><Icon name="info" size={13}/> 조회</>}
-            </button>
-          </div>
+      {/* 스캐너 결과 */}
+      {hits && (
+        <div style={{marginTop:14, display:'flex', flexDirection:'column', gap:10}}>
+          {/* 주의 성분 */}
+          {hits.found.length > 0 ? (
+            <div style={{borderRadius:10, border:'1px solid var(--warn-soft)', overflow:'hidden'}}>
+              <div style={{padding:'9px 14px', background:'var(--warn-soft)',
+                display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <span style={{fontWeight:600, color:'var(--warn)', fontSize:13}}>주의 성분 {hits.found.length}개 발견</span>
+                <span style={{fontFamily:'var(--mono)', fontSize:10.5, color:'var(--warn)'}}>클릭 → 상세 정보</span>
+              </div>
+              {hits.found.map((ing, idx) => renderIngRow(ing, idx, 'warn'))}
+            </div>
+          ) : !isFullList(input) ? null : (
+            <div style={{padding:'9px 14px', borderRadius:10, background:'var(--good-soft)',
+              color:'var(--good)', fontSize:13, fontWeight:500, display:'flex', alignItems:'center', gap:6}}>
+              <Icon name="check" size={13}/> 주의 성분이 발견되지 않았어요
+            </div>
+          )}
 
-          {dictResult && (
-            <div style={{marginTop:12, padding:'14px 16px', borderRadius:12,
-              background:'var(--surface-2)', border:'1px solid var(--line-2)'}}>
-              <div style={{fontFamily:'var(--serif-ko)', fontSize:16, fontWeight:500, marginBottom:8}}>
-                {dictQuery}
+          {/* 권장 성분 포함 */}
+          {hits.present.length > 0 && (
+            <div style={{borderRadius:10, border:'1px solid var(--good-soft)', overflow:'hidden'}}>
+              <div style={{padding:'9px 14px', background:'var(--good-soft)',
+                display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <span style={{fontWeight:600, color:'var(--good)', fontSize:13}}>권장 성분 {hits.present.length}개 포함</span>
+                <span style={{fontFamily:'var(--mono)', fontSize:10.5, color:'var(--good)'}}>클릭 → 효능 확인</span>
               </div>
-              <div style={{fontSize:13, color:'var(--ink-2)', lineHeight:1.7, marginBottom:10}}>
-                {dictResult.description}
+              {hits.present.map((ing, idx) => renderIngRow(ing, idx, 'good'))}
+            </div>
+          )}
+
+          {/* 권장 성분 미포함 (전성분 모드만) */}
+          {isFullList(input) && hits.missing.length > 0 && (
+            <div style={{padding:'10px 14px', borderRadius:10, background:'var(--bg-2)', border:'1px solid var(--line-2)'}}>
+              <div style={{fontWeight:500, color:'var(--ink-2)', fontSize:12.5, marginBottom:8}}>
+                이 제품에 없는 권장 성분 ({hits.missing.length}개)
               </div>
-              {dictResult.benefits && dictResult.benefits.length > 0 && (
-                <div style={{marginBottom:8}}>
-                  <div style={{fontSize:11.5, fontWeight:600, color:'var(--good)', marginBottom:4}}>효과</div>
-                  <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
-                    {dictResult.benefits.map((b,i) => (
-                      <span key={i} style={{padding:'3px 9px', borderRadius:999,
-                        background:'var(--good-soft)', color:'var(--good)', fontSize:12}}>{b}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {dictResult.concerns && dictResult.concerns.length > 0 && (
-                <div style={{marginBottom:8}}>
-                  <div style={{fontSize:11.5, fontWeight:600, color:'var(--warn)', marginBottom:4}}>주의사항</div>
-                  <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
-                    {dictResult.concerns.map((c,i) => (
-                      <span key={i} style={{padding:'3px 9px', borderRadius:999,
-                        background:'var(--warn-soft)', color:'var(--warn)', fontSize:12}}>{c}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:8}}>
-                {dictResult.suitable_for && (
-                  <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface)',
-                    border:'1px solid var(--line-2)'}}>
-                    <div style={{fontSize:10.5, color:'var(--ink-faint)', marginBottom:2}}>적합 피부</div>
-                    <div style={{fontSize:12.5, fontWeight:500}}>{dictResult.suitable_for}</div>
-                  </div>
-                )}
-                {dictResult.found_in && (
-                  <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface)',
-                    border:'1px solid var(--line-2)'}}>
-                    <div style={{fontSize:10.5, color:'var(--ink-faint)', marginBottom:2}}>주사용 제품</div>
-                    <div style={{fontSize:12.5, fontWeight:500}}>{dictResult.found_in}</div>
-                  </div>
-                )}
-                {dictResult.concentration && (
-                  <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface)',
-                    border:'1px solid var(--line-2)', gridColumn:'1/-1'}}>
-                    <div style={{fontSize:10.5, color:'var(--ink-faint)', marginBottom:2}}>일반 사용 농도</div>
-                    <div style={{fontSize:12.5, fontWeight:500}}>{dictResult.concentration}</div>
-                  </div>
-                )}
+              <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+                {hits.missing.map((ing, idx) => (
+                  <span key={idx} onClick={() => fetchDict(ing.name)} style={{
+                    padding:'4px 10px', borderRadius:999, fontSize:12.5, cursor:'pointer',
+                    background:'var(--surface)', border:'1px solid var(--line)', color:'var(--ink-2)',
+                  }}>{ing.name}</span>
+                ))}
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
 };
 
-// 히스토리 목록 (hook 규칙 준수 — IIFE 패턴 제거)
-const HistoryList = ({ displayHistory, onViewHistoryItem, onViewReport, gradients }) => {
+// 히스토리 목록
+const HistoryList = ({ displayHistory, onViewHistoryItem, onViewReport, gradients, onDelete }) => {
   const [loadingId, setLoadingId] = React.useState(null);
+  const [deletingId, setDeletingId] = React.useState(null);
+  const [expanded, setExpanded] = React.useState(false);
+
+  const VISIBLE = 4;
+  const visible = expanded ? displayHistory : displayHistory.slice(0, VISIBLE);
+  const hiddenCount = displayHistory.length - VISIBLE;
 
   const handleClick = async (h) => {
     const id = h.id || h.analysisId;
     if (!id || !onViewHistoryItem) { onViewReport && onViewReport(); return; }
     setLoadingId(id);
     try {
-      const token   = localStorage.getItem('skin_token');
+      const token = localStorage.getItem('skin_token');
       const headers = token ? { Authorization: 'Bearer ' + token } : {};
-      const res     = await fetch(`/api/history/${id}`, { headers });
+      const res = await fetch(`/api/history/${id}`, { headers });
       if (!res.ok) throw new Error();
-      const data    = await res.json();
+      const data = await res.json();
       onViewHistoryItem(data);
     } catch {
       onViewReport && onViewReport();
     } finally {
       setLoadingId(null);
     }
+  };
+
+  const handleDelete = async (e, h) => {
+    e.stopPropagation();
+    const id = h.id || h.analysisId;
+    setDeletingId(id || h.date);
+    // 서버 삭제 시도 (id 있을 때만, fire-and-forget)
+    if (id) {
+      try {
+        const token = localStorage.getItem('skin_token');
+        const headers = token ? { Authorization: 'Bearer ' + token } : {};
+        await fetch(`/api/history/${id}`, { method: 'DELETE', headers });
+      } catch {}
+    }
+    onDelete && onDelete(h);
+    setDeletingId(null);
   };
 
   if (displayHistory.length === 0) {
@@ -322,37 +270,114 @@ const HistoryList = ({ displayHistory, onViewHistoryItem, onViewReport, gradient
   }
 
   return (
-    <div className="history-list">
-      {displayHistory.map((h, i) => (
-        <div key={i} className="history-row"
-          onClick={() => handleClick(h)}
-          style={{cursor:'pointer', transition:'background .12s ease'}}
-          onMouseEnter={e => e.currentTarget.style.background='var(--bg-2)'}
-          onMouseLeave={e => e.currentTarget.style.background=''}>
-          <div className="thumb" style={{background: gradients[i % gradients.length]}} />
-          <div className="meta">
-            <span className="date">{h.date}</span>
-            <span className="title">{h.label}</span>
-            {h.skinLabel && <span style={{fontSize:11, color:'var(--ink-faint)'}}>{h.skinLabel}</span>}
-          </div>
-          <span style={{fontSize:13, fontWeight:600, minWidth:32, textAlign:'right'}}>
-            {h.score}
-          </span>
-          {h.delta && (
-            <span className={"delta " + (h.up ? '' : 'down')}>{h.delta} {h.up ? '▲' : '▼'}</span>
-          )}
-          <span className="arrow" style={{color: loadingId===(h.id||h.analysisId) ? 'var(--accent)' : 'var(--ink-faint)'}}>
-            {loadingId===(h.id||h.analysisId) ? '…' : '›'}
-          </span>
-        </div>
-      ))}
+    <div>
+      <div className="history-list">
+        {visible.map((h, i) => {
+          const hid = h.id || h.analysisId;
+          const isDeleting = deletingId === (hid || h.date);
+          const isLoading  = loadingId === hid;
+          return (
+            <div key={hid || i} className="history-row"
+              onClick={() => handleClick(h)}
+              style={{cursor:'pointer', transition:'background .12s ease'}}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg-2)'}
+              onMouseLeave={e => e.currentTarget.style.background=''}>
+              <div className="thumb" style={{background: gradients[i % gradients.length]}} />
+              <div className="meta">
+                <span className="date">{h.date}</span>
+                <span className="title">{h.label}</span>
+                {h.skinLabel && <span style={{fontSize:11, color:'var(--ink-faint)'}}>{h.skinLabel}</span>}
+              </div>
+              {/* 점수 + 델타 (고정 컬럼) */}
+              <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:42}}>
+                <span style={{fontSize:13, fontWeight:600}}>{h.score}</span>
+                {h.delta
+                  ? <span className={"delta " + (h.up ? '' : 'down')} style={{fontSize:11}}>
+                      {h.delta} {h.up ? '▲' : '▼'}
+                    </span>
+                  : <span style={{fontSize:11, color:'transparent'}}>—</span>
+                }
+              </div>
+              {/* 삭제 + 이동 (고정 컬럼) */}
+              <div style={{display:'flex', alignItems:'center', gap:4}}>
+                <button
+                  onClick={(e) => handleDelete(e, h)}
+                  disabled={isDeleting}
+                  title="기록 삭제"
+                  style={{
+                    background:'none', border:'none',
+                    cursor: isDeleting ? 'default' : 'pointer',
+                    padding:'5px', color: isDeleting ? 'var(--ink-faint)' : 'var(--ink-muted)',
+                    borderRadius:6, display:'flex', alignItems:'center', flexShrink:0,
+                    transition:'color .15s',
+                  }}
+                  onMouseEnter={e => { if (!isDeleting) e.currentTarget.style.color='var(--warn)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = isDeleting ? 'var(--ink-faint)' : 'var(--ink-muted)'; }}
+                >
+                  {isDeleting
+                    ? <span style={{fontSize:12}}>…</span>
+                    : <Icon name="trash" size={13}/>
+                  }
+                </button>
+                <span className="arrow" style={{
+                  color: isLoading ? 'var(--accent)' : 'var(--ink-faint)',
+                  fontSize:18, lineHeight:1,
+                }}>
+                  {isLoading ? '…' : '›'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {hiddenCount > 0 && !expanded && (
+        <button onClick={() => setExpanded(true)}
+          className="btn btn-ghost btn-sm"
+          style={{width:'100%', marginTop:10, justifyContent:'center', gap:6}}>
+          더보기 ({hiddenCount}개) <Icon name="chevronDown" size={13}/>
+        </button>
+      )}
+      {expanded && displayHistory.length > VISIBLE && (
+        <button onClick={() => setExpanded(false)}
+          className="btn btn-ghost btn-sm"
+          style={{width:'100%', marginTop:10, justifyContent:'center', gap:6}}>
+          접기 <Icon name="chevronUp" size={13}/>
+        </button>
+      )}
     </div>
   );
 };
 
+const MOCK_HISTORY = [
+  { date: '2026 · 05 · 22', label: '피부 분석', score: 62, delta: '+4', up: true  },
+  { date: '2026 · 05 · 15', label: '피부 분석', score: 58, delta: '+1', up: true  },
+  { date: '2026 · 05 · 08', label: '피부 분석', score: 57, delta: '-2', up: false },
+  { date: '2026 · 05 · 01', label: '피부 분석', score: 59, delta: '+6', up: true  },
+];
+
 // Dashboard — 실제 분석 데이터 반영
 const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList }) => {
   const hasData = !!(analysisData && analysisData.composite_score != null);
+  const [localHistory, setLocalHistory] = React.useState(null);
+
+  // historyList prop이 채워지면(로그인 후, 첫 로드) 로컬 상태로 동기화
+  React.useEffect(() => {
+    if (historyList && historyList.length > 0) {
+      setLocalHistory(historyList);
+    }
+  }, [historyList ? historyList.length : 0]);
+
+  const handleDeleteHistory = (item) => {
+    setLocalHistory(prev => {
+      const base = prev !== null ? prev : (historyList && historyList.length > 0 ? historyList : MOCK_HISTORY);
+      const itemId = item.id || item.analysisId;
+      return base.filter(h => {
+        if (itemId) return (h.id || h.analysisId) !== itemId;
+        return !(h.date === item.date && h.score === item.score);
+      });
+    });
+  };
 
   const lastScore    = hasData ? analysisData.composite_score : null;
   const lastSkin     = hasData ? analysisData.skin_type_label : null;
@@ -384,14 +409,10 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
       }))
     : MOCK_CARE;
 
-  // 히스토리 — 실제 분석 기록 or mock
-  const MOCK_HISTORY = [
-    { date: '2026 · 05 · 22', label: '아침 분석 #14', score: 62, delta: '+4',  up: true  },
-    { date: '2026 · 05 · 15', label: '주간 점검 #13', score: 58, delta: '+1',  up: true  },
-    { date: '2026 · 05 · 08', label: '저녁 분석 #12', score: 57, delta: '-2',  up: false },
-    { date: '2026 · 05 · 01', label: '월간 리포트',   score: 59, delta: '+6',  up: true  },
-  ];
-  const displayHistory = (historyList && historyList.length > 0) ? historyList : MOCK_HISTORY;
+  // 히스토리 — 로그인 상태면 실제 기록(없으면 빈 배열), 비로그인이면 mock
+  const isLoggedIn = !!localStorage.getItem('skin_token');
+  const displayHistory = localHistory !== null ? localHistory
+    : (historyList && historyList.length > 0 ? historyList : (isLoggedIn ? [] : MOCK_HISTORY));
 
   const gradients = [
     'linear-gradient(135deg, #E8C9B5, #C9624A)',
@@ -428,48 +449,36 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
           </div>
         </div>
 
-        <div className="hero-stat">
-          {hasData ? (
-            <>
-              <div>
-                <div className="eyebrow-serif">최근 종합 점수</div>
-                <div className="last-row" style={{marginTop: 8}}>
-                  <div className="score-big">{lastScore}<sup>/100</sup></div>
-                  {historyList.length > 1 && (
-                    <div style={{textAlign:'right'}}>
-                      <div className="mono" style={{fontSize: 12, color: historyList[0].up ? 'var(--good)' : 'var(--warn)'}}>
-                        {historyList[0].delta} {historyList[0].up ? '▲' : '▼'}
-                      </div>
-                      <div className="faint" style={{fontSize: 11.5}}>지난 분석 대비</div>
+        {hasData && (
+          <div className="hero-stat">
+            <div>
+              <div className="eyebrow-serif">최근 종합 점수</div>
+              <div className="last-row" style={{marginTop: 8}}>
+                <div className="score-big">{lastScore}<sup>/100</sup></div>
+                {historyList.length > 1 && (
+                  <div style={{textAlign:'right'}}>
+                    <div className="mono" style={{fontSize: 12, color: historyList[0].up ? 'var(--good)' : 'var(--warn)'}}>
+                      {historyList[0].delta} {historyList[0].up ? '▲' : '▼'}
                     </div>
-                  )}
-                </div>
-                <div className="muted" style={{fontSize: 12.5, marginTop: 8}}>{lastSkin}</div>
+                    <div className="faint" style={{fontSize: 11.5}}>지난 분석 대비</div>
+                  </div>
+                )}
               </div>
-              <div className="pill-row">
-                {attrPills.length > 0
-                  ? attrPills.map((p, i) => (
-                      <span key={i} className="pill" style={{
-                        background: p.hi ? 'var(--warn-soft)' : 'var(--good-soft)',
-                        color: p.hi ? 'var(--warn)' : 'var(--good)',
-                      }}>{p.label}</span>
-                    ))
-                  : <span className="pill muted" style={{fontSize:12}}>속성 데이터 없음</span>
-                }
-              </div>
-            </>
-          ) : (
-            <div style={{display:'flex', flexDirection:'column', gap:12, alignItems:'flex-start'}}>
-              <div className="eyebrow">아직 분석 기록이 없어요</div>
-              <div style={{fontSize:13.5, color:'var(--ink-2)', lineHeight:1.6}}>
-                사진 한 장과 간단한 폼 작성으로<br/>맞춤 피부 분석을 받아보세요.
-              </div>
-              <button className="btn btn-accent btn-sm" onClick={onStart}>
-                <Icon name="sparkle" size={13}/> 지금 시작하기
-              </button>
+              <div className="muted" style={{fontSize: 12.5, marginTop: 8}}>{lastSkin}</div>
             </div>
-          )}
-        </div>
+            <div className="pill-row">
+              {attrPills.length > 0
+                ? attrPills.map((p, i) => (
+                    <span key={i} className="pill" style={{
+                      background: p.hi ? 'var(--warn-soft)' : 'var(--good-soft)',
+                      color: p.hi ? 'var(--warn)' : 'var(--good)',
+                    }}>{p.label}</span>
+                  ))
+                : <span className="pill muted" style={{fontSize:12}}>속성 데이터 없음</span>
+              }
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main grid */}
@@ -563,11 +572,12 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
               onViewHistoryItem={onViewHistoryItem}
               onViewReport={onViewReport}
               gradients={gradients}
+              onDelete={handleDeleteHistory}
             />
           </div>
 
-          {/* 성분 하이브리드 */}
-          <IngHybrid
+          {/* 성분 검사·사전 통합 */}
+          <IngUnified
             avoidList={(analysisData && analysisData.avoid_ingredients) || []}
             recList={(analysisData && analysisData.recommended_ingredients) || []}
           />

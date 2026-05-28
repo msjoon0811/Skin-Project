@@ -475,6 +475,11 @@ input, textarea, select{ font-family: inherit; color: inherit; }
   background: var(--surface); border-radius: 50%;
 }
 @keyframes spin{ to{ transform: rotate(360deg); } }
+.spinner{
+  display:inline-block; width:14px; height:14px; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.3); border-top-color:white;
+  animation: spin 0.75s linear infinite; flex-shrink:0;
+}
 .loading-steps{ display:flex; flex-direction:column; gap: 10px; min-width: 320px; }
 .loading-step{
   display:flex; align-items:center; gap: 12px;
@@ -550,7 +555,7 @@ input, textarea, select{ font-family: inherit; color: inherit; }
   background: var(--bg-2); color: var(--ink-muted);
 }
 
-.products-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.products-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
 .product-card{
   background: var(--surface);
   border: 1px solid var(--line-2);
