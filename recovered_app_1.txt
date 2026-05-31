@@ -1,0 +1,78 @@
+Created At: 2026-05-29T05:19:42Z
+Completed At: 2026-05-29T05:19:42Z
+File Path: `file:///c:/Users/0215w/Downloads/Skin_Project/design/app.jsx`
+Total Lines: 443
+Total Bytes: 20451
+Showing lines 1 to 70
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: // Main app — routing + auth + top nav
+2: const App = () => {
+3:   const [screen, setScreen] = React.useState('login');
+4:   const [user, setUser] = React.useState(null);
+5:   const [token, setToken] = React.useState(null);
+6:   const [analysisData, setAnalysisData] = React.useState(null);
+7:   const [historyList, setHistoryList] = React.useState([]);
+8:   const [notifications, setNotifications] = React.useState([]);
+9: 
+10:   // Load notifications from DB
+11:   React.useEffect(() => {
+12:     if (user && token) {
+13:       fetch('/api/me/notifications', { headers: { Authorization: 'Bearer ' + token } })
+14:         .then(r => r.ok ? r.json() : null)
+15:         .then(d => { if (d && d.items) setNotifications(d.items); })
+16:         .catch(() => {});
+17:     } else {
+18:       setNotifications([]);
+19:     }
+20:   }, [user, token]);
+21: 
+22:   // Generate notifications based on data
+23:   React.useEffect(() => {
+24:     if (!user || !token) return;
+25:     let delayCounter = 0;
+26: 
+27:     const addNotif = (title, message, type) => {
+28:       setNotifications(prev => {
+29:         const newNotifs = [...prev];
+30:         const exists = newNotifs.some(n => n.message === message);
+31:         if (!exists) {
+32:           delayCounter++;
+33:           const newId = Date.now().toString() + delayCounter.toString().padStart(4, '0');
+34:           // 순서를 보장하기 위해 밀리초 단위로 1씩 증가시킨 타임스탬프 생성
+35:           const createdAt = new Date(Date.now() + delayCounter).toISOString();
+36:           
+37:           const nObj = { id: newId, typ
+<truncated 111 bytes>
+        fetch('/api/me/notifications', {
+40:             method: 'POST',
+41:             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+42:             body: JSON.stringify({ ...nObj, created_at: createdAt })
+43:           }).catch(()=>{});
+44:         }
+45:         return newNotifs;
+46:       });
+47:     };
+48: 
+49:     if (historyList && historyList.length > 0) {
+50:       const latest = historyList[0];
+51:       let lastDate = new Date(latest.created_at || latest.date || Date.now());
+52:       if (isNaN(lastDate.getTime())) lastDate = new Date();
+53:       
+54:       const daysPassed = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 3600 * 24));
+55:       
+56:       if (daysPassed > 0) {
+57:         if (!localStorage.getItem(`notif_reminder_${user.id}_${daysPassed}`)) {
+58:           addNotif('정기 분석 리마인더', `마지막 피부 분석 후 ${daysPassed}일이 지났어요! 계절이 바뀌었는데 오늘의 피부 상태를 확인해볼까요?`, 'reminder');
+59:           localStorage.setItem(`notif_reminder_${user.id}_${daysPassed}`, '1');
+60:         }
+61:       } else {
+62:         if (!localStorage.getItem(`notif_complete_${user.id}_${latest.id}`)) {
+63:           addNotif('분석 완료', '최근 피부 분석을 완료하셨네요! 꾸준히 기록을 남겨 피부 변화를 확인해보세요.', 'complete');
+64:           localStorage.setItem(`notif_complete_${user.id}_${latest.id}`, '1');
+65:         }
+66:       }
+67:     } else if (historyList && historyList.length === 0) {
+68:       if (!localStorage.getItem(`notif_welcome_${user.id}`)) {
+69:         addNotif('환영합니다!', '아직 피부 분석 기록이 없습니다. 첫 분석을 진행하여 맞춤 추천을 받아보세요!', 'welcome');
+70:         localStorage.setItem(`notif_welcome_${user.id}`, '1');
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

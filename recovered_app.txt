@@ -1,0 +1,9 @@
+Created At: 2026-05-29T05:23:06Z
+Completed At: 2026-05-29T05:23:06Z
+File Path: `file:///c:/Users/0215w/Downloads/Skin_Project/design/app.jsx`
+Total Lines: 122
+Total Bytes: 4274
+Showing lines 122 to 122
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+122: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

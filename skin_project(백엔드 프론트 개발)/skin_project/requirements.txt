@@ -1,0 +1,39 @@
+# ── Core ML ────────────────────────────────────────────────────────
+# CUDA 설치 (권장, RTX 시리즈):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# CPU 전용:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0
+torchvision>=0.15
+timm>=0.9
+numpy>=1.24
+pandas>=2.0
+pillow>=10.0
+scikit-learn>=1.3
+tqdm
+
+# ── 얼굴 검출 (face_crop.py) ───────────────────────────────────────
+opencv-python>=4.8
+
+# ── 데이터 수집 / 환경 변수 ────────────────────────────────────────
+requests
+python-dotenv
+
+# ── 시각화 / EDA ───────────────────────────────────────────────────
+matplotlib
+seaborn
+jupyter
+
+# ── 데모 앱 ────────────────────────────────────────────────────────
+streamlit>=1.30
+
+# ── React 프론트엔드 서버 (api/server.py) ──────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# ── AI 설명 생성 (Claude API) ──────────────────────────────────────
+anthropic>=0.40
+
+# ── 설정 파일 ──────────────────────────────────────────────────────
+pyyaml

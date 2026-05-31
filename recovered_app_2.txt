@@ -1,0 +1,49 @@
+Created At: 2026-05-29T05:19:48Z
+Completed At: 2026-05-29T05:19:49Z
+File Path: `file:///c:/Users/0215w/Downloads/Skin_Project/design/app.jsx`
+Total Lines: 443
+Total Bytes: 20451
+Showing lines 100 to 140
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+100:         if (token) {
+101:           fetch('/api/me/notifications/read', { method: 'PUT', headers: { Authorization: 'Bearer ' + token } }).catch(()=>{});
+102:         }
+103:       }
+104:     }
+105:   };
+106: 
+107:   const handleDeleteNotification = (id) => {
+108:     setNotifications(notifications.filter(n => n.id !== id));
+109:     if (token) {
+110:       fetch('/api/me/notifications/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }).catch(()=>{});
+111:     }
+112:   };
+113:   const [showNotifications, setShowNotifications] = React.useState(false);
+114:   const [showAvatarMenu, setShowAvatarMenu] = React.useState(false);
+115:   const [showSettings, setShowSettings] = React.useState(false);
+116:   const [settings, setSettings] = React.useState({
+117:     hasAllergies: false, allergyList: [], customAllergies: '', lifestyle: '보통', darkMode: false, fontSize: '보통', pushEnabled: true
+118:   });
+119: 
+120:   // Apply CSS classes to body based on settings
+121:   React.useEffect(() => {
+122:     if (settings.darkMode) document.body.classList.add('dark-mode');
+123:     else document.body.classList.remove('dark-mode');
+124: 
+125:     let scale = 1;
+126:     if (settings.fontSize === '작게') scale = 0.9;
+127:     if (settings.fontSize === '크게') scale = 1.15;
+128:     
+129:     // 강제로 인라인 스타일 적용 (브라우저 캐시 우회 및 확실한 동작 보장)
+130:     document.documentElement.style.setProperty('zoom', scale);
+131:     // Firefox 등 zoom 미지원 브라우저 대비 대체 속성
+132:     document.documentElement.style.setProperty('-moz-transform', `scale(${scale})`);
+133:     document.documentElement.style.setProperty('-moz-transform-origin', 'top center');
+134:   }, [settings.darkMode, settings.fontSize]);
+135: 
+136:   const handlePushToggle = (checked) => {
+137:     if (!checked) {
+138:       alert("알림 수신 동의를 해제하셨습니다. 앞으로 피부 분석 리마인더 등의 알림이 오지 않습니다.");
+139:     }
+140:     setSettings({...settings, pushEnabled: checked});
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
