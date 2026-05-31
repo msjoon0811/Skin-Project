@@ -26,6 +26,43 @@ const Analyze = ({ onComplete, onBack, authHeaders = {} }) => {
     budget: '20-40', routine: '간단 (3단계)',
   });
   const [formErrors, setFormErrors] = React.useState({});
+  const [prefilled, setPrefilled]   = React.useState(false);  // #7 자동완성 표시용
+
+  // #7 이전 분석 폼 자동완성 — 마운트 시 last_form 로드
+  React.useEffect(() => {
+    const token = localStorage.getItem('skin_token');
+    if (!token) return;
+    fetch('/api/history/last_form', { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d || Object.keys(d).length === 0) return;
+        setForm(prev => ({
+          ...prev,
+          skinType:   d.skinType   || d.skin_type   || prev.skinType,
+          age:        d.age        || d.ageGroup     || prev.age,
+          gender:     d.gender     || prev.gender,
+          concerns:   Array.isArray(d.concerns)   ? d.concerns   : prev.concerns,
+          sensitivity:d.sensitivity || prev.sensitivity,
+          allergyMode:d.allergyMode || prev.allergyMode,
+          allergies:  d.allergies  || prev.allergies,
+          drinking:   d.drinking   || prev.drinking,
+          smoking:    d.smoking    || prev.smoking,
+          cleansing:  d.cleansing  || prev.cleansing,
+          hormone:    Array.isArray(d.hormone) ? d.hormone : prev.hormone,
+          gut:        d.gut        || prev.gut,
+          sleep:      d.sleep      || prev.sleep,
+          water:      d.water      || prev.water,
+          heat:       d.heat       || prev.heat,
+          pollution:  d.pollution  || prev.pollution,
+          sweat:      d.sweat      || prev.sweat,
+          diet:       Array.isArray(d.diet) ? d.diet : prev.diet,
+          budget:     d.budget     || prev.budget,
+          routine:    d.routine    || prev.routine,
+        }));
+        setPrefilled(true);
+      })
+      .catch(() => {});
+  }, []);
 
   const toggle = (k, v) => setForm(f => ({
     ...f,
@@ -239,6 +276,23 @@ const Analyze = ({ onComplete, onBack, authHeaders = {} }) => {
                 </div>
                 <span className="mono muted" style={{fontSize: 11.5}}>* 필수 항목</span>
               </div>
+
+              {/* #7 이전 폼 자동완성 배너 */}
+              {prefilled && (
+                <div style={{
+                  display:'flex', alignItems:'center', justifyContent:'space-between',
+                  padding:'10px 16px', borderRadius:10, marginBottom:8,
+                  background:'var(--good-soft)', border:'1px solid rgba(91,117,83,0.2)',
+                }}>
+                  <div style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--good)'}}>
+                    <Icon name="check" size={14}/> 이전 분석 기록으로 폼이 자동 완성됐습니다. 수정 후 분석하세요.
+                  </div>
+                  <button onClick={() => setPrefilled(false)}
+                    style={{background:'none', border:'none', cursor:'pointer', color:'var(--good)', padding:4}}>
+                    <Icon name="cross" size={12}/>
+                  </button>
+                </div>
+              )}
 
               <div className="form-grid">
                 {/* 기본 정보 */}

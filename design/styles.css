@@ -706,6 +706,134 @@ input, textarea, select{ font-family: inherit; color: inherit; }
   .fields-2, .fields-3{ grid-template-columns: 1fr; }
 }
 
+/* ---------- Dark Mode ---------- */
+body.dark{
+  --bg:          #1C1917;
+  --bg-2:        #24211E;
+  --surface:     #2A2724;
+  --surface-2:   #302D2A;
+  --ink:         #F0EAE2;
+  --ink-2:       #C8BFB5;
+  --ink-muted:   #8A8078;
+  --ink-faint:   #5A5450;
+  --line:        #3A3530;
+  --line-2:      #302D2A;
+  --accent-soft: #3A1E15;
+  --accent-ink:  #E8896E;
+  --good-soft:   #1A2818;
+  --warn-soft:   #2A1510;
+  color-scheme: dark;
+}
+
+/* ── 하드코딩된 어두운 텍스트 색상 덮어쓰기 ── */
+body.dark .hero-main .heading  { color: var(--ink) !important; }
+body.dark .hero-main .overline { color: var(--ink-muted) !important; }
+body.dark .login-art .brand    { color: var(--ink) !important; }
+body.dark .login-art-foot      { color: rgba(240,235,228,0.85) !important; }
+body.dark .login-art-foot .small { color: rgba(240,235,228,0.55) !important; }
+body.dark .score-big           { color: var(--ink); }
+
+/* ── 그라디언트 배경 섹션 다크 전환 ── */
+body.dark .hero-main {
+  background:
+    radial-gradient(80% 60% at 80% 30%, rgba(201,98,74,0.18) 0%, transparent 60%),
+    radial-gradient(60% 50% at 15% 90%, rgba(160,110,70,0.12) 0%, transparent 55%),
+    linear-gradient(160deg, #282018, #201610) !important;
+}
+body.dark .result-banner {
+  background:
+    radial-gradient(60% 80% at 90% 50%, rgba(201,98,74,0.12) 0%, transparent 60%),
+    linear-gradient(120deg, #242018, #1E1A12) !important;
+}
+body.dark .login-art {
+  background:
+    radial-gradient(120% 80% at 80% 20%, rgba(201,98,74,0.25) 0%, transparent 55%),
+    radial-gradient(80% 60% at 10% 90%, rgba(160,110,70,0.15) 0%, transparent 55%),
+    linear-gradient(160deg, #261E18, #1C140E) !important;
+}
+body.dark .cam-frame {
+  background:
+    radial-gradient(80% 60% at 50% 30%, rgba(201,98,74,0.15) 0%, transparent 65%),
+    linear-gradient(160deg, #282018, #1C140E) !important;
+}
+body.dark .loading-ring {
+  background: conic-gradient(from 0deg, var(--accent), #3A2520, var(--accent)) !important;
+}
+
+/* ── 카드·패널 ── */
+body.dark .card        { background: var(--surface);   border-color: var(--line-2); }
+body.dark .card-flat   { background: var(--surface-2); border-color: var(--line-2); }
+body.dark .panel       { background: var(--surface);   border-color: var(--line); }
+body.dark .attribute-card { background: var(--surface); border-color: var(--line); }
+body.dark .ing-card    { border-color: var(--line); }
+body.dark .ing-card.good { background: linear-gradient(180deg, #1A2818, var(--surface) 55%); }
+body.dark .ing-card.avoid{ background: linear-gradient(180deg, #2A1510, var(--surface) 55%); }
+body.dark .product-card { border-color: var(--line); background: var(--surface); }
+
+/* ── 입력 ── */
+body.dark .input { background: var(--surface); color: var(--ink); border-color: var(--line); }
+body.dark .input::placeholder { color: var(--ink-faint); }
+
+/* ── 버튼 ── */
+body.dark .btn-primary        { background: #DED6CE; color: #1C1917; }
+body.dark .btn-primary:hover  { background: #ECE4DC; }
+body.dark .btn-outline        { border-color: var(--line); color: var(--ink-2); }
+body.dark .btn-outline:hover  { border-color: var(--ink-muted); }
+body.dark .btn-ghost          { color: var(--ink-2); }
+body.dark .btn-ghost:hover    { background: var(--bg-2); }
+
+/* ── 내비게이션 ── */
+body.dark .nav            { background: rgba(28,25,23,0.92); border-color: var(--line); }
+body.dark .nav-tab        { color: var(--ink-muted); }
+body.dark .nav-tab:hover  { background: var(--bg-2); color: var(--ink); }
+body.dark .nav-tab.active { background: var(--surface); color: var(--ink); box-shadow: none; }
+
+/* ── 식단 배너 (diet-banner) ── */
+.diet-banner {
+  background:
+    radial-gradient(80% 60% at 85% 30%, #C8E8B0 0%, transparent 55%),
+    linear-gradient(120deg, #E8F2DE, #C5D9AD);
+}
+body.dark .diet-banner {
+  background:
+    radial-gradient(80% 60% at 85% 30%, rgba(91,117,83,0.25) 0%, transparent 55%),
+    linear-gradient(120deg, #1A2818, #141E10) !important;
+}
+
+/* ── 배너 안 텍스트 다크 보강 ── */
+body.dark .result-banner .eyebrow { color: var(--ink-muted) !important; }
+body.dark .result-banner .muted   { color: var(--ink-muted) !important; }
+body.dark .result-banner .skin-type { color: var(--ink) !important; }
+body.dark .result-banner .skin-type em { color: var(--accent-ink) !important; }
+
+/* ── 칩·필 (!important로 인라인 스타일 강제 override) ── */
+body.dark .pill { background: rgba(255,255,255,0.08) !important; color: var(--ink-2) !important; border-color: rgba(255,255,255,0.1) !important; }
+body.dark .chip { background: var(--surface); border-color: var(--line); color: var(--ink-2); }
+body.dark .chip.selected { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+body.dark .chip.tone.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+
+/* ── 히스토리 ── */
+body.dark .history-row { background: var(--surface-2); border-color: var(--line-2); }
+
+/* ── 게이지 바 ── */
+body.dark .bar-track { background: var(--bg-2); }
+
+/* ── 드롭다운 ── */
+body.dark .dropdown        { background: var(--surface-2); border-color: var(--line); }
+body.dark .dropdown-header { background: var(--surface); }
+body.dark .dropdown-item   { color: var(--ink-2); }
+body.dark .dropdown-item:hover { background: var(--bg-2); }
+
+/* ── 세그먼트 컨트롤 ── */
+body.dark .seg                   { background: var(--bg-2); border-color: var(--line); }
+body.dark .seg button.active     { background: var(--surface); color: var(--ink); }
+
+/* ── 분석 스텝 ── */
+body.dark .step .num  { background: var(--surface); border-color: var(--line); }
+body.dark .step:hover { background: var(--bg-2); }
+body.dark .step.active .num { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+body.dark .step.done  .num  { background: var(--good); }
+
 /* ---------- Dropdown ---------- */
 .dropdown-wrap{ position: relative; }
 .nav-icon-btn{ position: relative; }

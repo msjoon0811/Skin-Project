@@ -357,8 +357,9 @@ const MOCK_HISTORY = [
 ];
 
 // Dashboard — 실제 분석 데이터 반영
-const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList, onDeleteHistory }) => {
+const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList, onDeleteHistory, user }) => {
   const hasData = !!(analysisData && analysisData.composite_score != null);
+  const displayName = user ? (user.nickname || user.username || '') : '';
   const [localHistory, setLocalHistory] = React.useState(null);
 
   // historyList prop 변경 시 로컬 상태 동기화
@@ -437,7 +438,10 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
             <h1 className="heading">
               {hasData
                 ? <>분석이 완료됐어요.<br/>결과를 확인해볼까요?</>
-                : <>안녕하세요.<br/>오늘의 <em>피부 분석</em>을 시작해볼까요?</>
+                : <>
+                    안녕하세요{displayName ? <>, <em>{displayName}</em>님</> : ''}.<br/>
+                    오늘의 <em>피부 분석</em>을 시작해볼까요?
+                  </>
               }
             </h1>
           </div>

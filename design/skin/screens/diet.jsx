@@ -39,6 +39,51 @@ const Diet = ({ analysisData, onGoAnalyze, authHeaders }) => {
   const [result, setResult]     = React.useState(null);
   const [error, setError]       = React.useState('');
 
+  // #3 식단 일기 상태
+  const [diaries, setDiaries]     = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('skin_diet_diary') || '[]'); } catch { return []; }
+  });
+  const [diaryFood, setDiaryFood]   = React.useState('');
+  const [diaryEffect, setDiaryEffect] = React.useState('');
+  const [diaryNotes, setDiaryNotes]   = React.useState('');
+  const [showDiary, setShowDiary]   = React.useState(false);
+
+  // #3 일기 추가
+  const addDiary = () => {
+    if (!diaryFood.trim()) return;
+    const token = localStorage.getItem('skin_token');
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const today = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'·').replace('.','');
+    const entry = { id, date: today, food: diaryFood.trim(), skin_effect: diaryEffect.trim(), notes: diaryNotes.trim() };
+    const next = [entry, ...diaries];
+    setDiaries(next);
+    localStorage.setItem('skin_diet_diary', JSON.stringify(next));  // 캐시 저장
+    setDiaryFood(''); setDiaryEffect(''); setDiaryNotes('');
+    // DB 저장 (로그인 시)
+    if (token) {
+      fetch('/api/me/diary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify(entry),
+      }).catch(() => {});
+    }
+  };
+
+  // #3 일기 삭제 — 확인창 추가
+  const deleteDiary = (id) => {
+    if (!window.confirm('이 식단 일기를 삭제하시겠습니까?')) return;
+    const next = diaries.filter(d => d.id !== id);
+    setDiaries(next);
+    localStorage.setItem('skin_diet_diary', JSON.stringify(next));
+    const token = localStorage.getItem('skin_token');
+    if (token) {
+      fetch('/api/me/diary/' + id, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token },
+      }).catch(() => {});
+    }
+  };
+
   const hasReport = !!(analysisData && analysisData.attributes);
 
   const toggleFood = (id) =>
@@ -77,11 +122,9 @@ const Diet = ({ analysisData, onGoAnalyze, authHeaders }) => {
     <div className="page" data-screen-label="06 Diet">
 
       {/* ── 배너 ── */}
-      <div className="result-banner" style={{
-        background: 'radial-gradient(80% 60% at 85% 30%, #C8E8B0 0%, transparent 55%), linear-gradient(120deg, #E8F2DE, #C5D9AD)',
-      }}>
+      <div className="result-banner diet-banner">
         <div>
-          <div className="eyebrow" style={{color:'rgba(28,58,18,0.6)'}}>피부 식단 · DIET</div>
+          <div className="eyebrow">피부 식단 · DIET</div>
           <div className="skin-type" style={{marginTop:6}}>
             <em>피부에 좋은</em> 식단 추천
           </div>
@@ -91,24 +134,24 @@ const Diet = ({ analysisData, onGoAnalyze, authHeaders }) => {
           </div>
           <div className="pill-row" style={{marginTop:14}}>
             {hasReport
-              ? <span className="pill" style={{background:'rgba(28,80,18,0.12)', color:'#224018'}}>리포트 연동됨</span>
-              : <span className="pill" style={{background:'rgba(180,130,0,0.15)', color:'#7A5800'}}>리포트 없음 — 일반 추천</span>
+              ? <span className="pill" style={{background:'var(--good-soft)', color:'var(--good)'}}>리포트 연동됨</span>
+              : <span className="pill" style={{background:'var(--warn-soft)', color:'var(--gold)'}}>리포트 없음 — 일반 추천</span>
             }
-            <span className="pill" style={{background:'rgba(28,80,18,0.12)', color:'#224018'}}>Claude AI 추천</span>
+            <span className="pill" style={{background:'var(--good-soft)', color:'var(--good)'}}>Claude AI 추천</span>
           </div>
         </div>
 
         {/* 모드 스위치 */}
         <div style={{textAlign:'right'}}>
-          <div className="eyebrow" style={{color:'rgba(28,58,18,0.5)', marginBottom:8}}>추천 방식</div>
+          <div className="eyebrow" style={{marginBottom:8}}>추천 방식</div>
           <div style={{display:'flex', gap:6}}>
             {[['auto','리포트 기반'],['manual','식단 입력']].map(([v,label]) => (
               <button key={v} onClick={() => { setMode(v); setResult(null); setSelected([]); }}
                 style={{
                   padding:'9px 18px', borderRadius:999, fontSize:12.5,
                   fontFamily:'var(--sans)', fontWeight:500, cursor:'pointer', border:'none',
-                  background: mode===v ? 'white' : 'rgba(255,255,255,0.5)',
-                  color:      mode===v ? 'var(--ink)' : 'rgba(28,58,18,0.65)',
+                  background: mode===v ? 'var(--surface)' : 'rgba(255,255,255,0.15)',
+                  color:      mode===v ? 'var(--ink)' : 'var(--ink-muted)',
                   transition:'all 0.15s',
                 }}>{label}</button>
             ))}
@@ -592,6 +635,87 @@ const Diet = ({ analysisData, onGoAnalyze, authHeaders }) => {
           </div>
         </>
       )}
+
+      {/* ── #3 피부 식단 일기 ── */}
+      <div style={{marginTop:40, borderTop:'2px solid var(--line-2)', paddingTop:32}}>
+        <div className="section-head" style={{marginBottom:16}}>
+          <div>
+            <div className="eyebrow">식단 일기 · DIARY</div>
+            <h2 className="h2-serif" style={{margin:'4px 0 0'}}>오늘 먹은 것을 기록하세요</h2>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowDiary(v => !v)}
+            style={{display:'flex', alignItems:'center', gap:6}}>
+            <Icon name={showDiary ? 'chevronUp' : 'chevronDown'} size={14}/>
+            {showDiary ? '접기' : `일기 보기 (${diaries.length})`}
+          </button>
+        </div>
+
+        {/* 입력 폼 */}
+        <div className="card" style={{padding:20, marginBottom:16}}>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12}}>
+            <div className="field">
+              <label className="field-label">오늘 먹은 음식 <span style={{color:'var(--accent)'}}>*</span></label>
+              <input className="input" value={diaryFood} onChange={e => setDiaryFood(e.target.value)}
+                placeholder="예: 연어구이, 시금치나물, 잡곡밥" />
+            </div>
+            <div className="field">
+              <label className="field-label">피부 변화 (선택)</label>
+              <input className="input" value={diaryEffect} onChange={e => setDiaryEffect(e.target.value)}
+                placeholder="예: 트러블 없음, 촉촉한 느낌" />
+            </div>
+          </div>
+          <div className="field" style={{marginBottom:12}}>
+            <label className="field-label">메모 (선택)</label>
+            <input className="input" value={diaryNotes} onChange={e => setDiaryNotes(e.target.value)}
+              placeholder="추가 메모" />
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={addDiary} disabled={!diaryFood.trim()}
+            style={{display:'flex', alignItems:'center', gap:6}}>
+            <Icon name="plus" size={13}/> 일기 추가
+          </button>
+        </div>
+
+        {/* 일기 목록 */}
+        {showDiary && (
+          diaries.length === 0 ? (
+            <div className="muted" style={{textAlign:'center', padding:'24px 0', fontSize:13}}>
+              아직 기록된 식단 일기가 없습니다.
+            </div>
+          ) : (
+            <div style={{display:'flex', flexDirection:'column', gap:10}}>
+              {diaries.map((d, i) => (
+                <div key={d.id || i} style={{
+                  display:'grid', gridTemplateColumns:'1fr auto',
+                  gap:12, alignItems:'flex-start',
+                  padding:'14px 16px', borderRadius:'var(--radius-sm)',
+                  background:'var(--surface)', border:'1px solid var(--line-2)',
+                }}>
+                  <div>
+                    <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                      <span style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--ink-muted)'}}>{d.date}</span>
+                    </div>
+                    <div style={{fontWeight:600, fontSize:14, color:'var(--ink)', marginBottom:4}}>{d.food}</div>
+                    {d.skin_effect && (
+                      <div style={{fontSize:12.5, color:'var(--good)', marginBottom:2}}>
+                        피부: {d.skin_effect}
+                      </div>
+                    )}
+                    {d.notes && (
+                      <div style={{fontSize:12, color:'var(--ink-muted)'}}>{d.notes}</div>
+                    )}
+                  </div>
+                  <button onClick={() => deleteDiary(d.id)}
+                    style={{background:'none', border:'none', cursor:'pointer',
+                            color:'var(--ink-faint)', padding:6, marginTop:2}}
+                    title="삭제">
+                    <Icon name="trash" size={13}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </div>
 
       <div style={{height:40}}/>
     </div>
