@@ -624,6 +624,15 @@ def history_detail(analysis_id: int, authorization: Optional[str] = Header(defau
     data = get_analysis_detail(analysis_id, user_id=user["id"] if user else None)
     if not data:
         raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없습니다.")
+    # 구버전 기록에 procedures/foods 누락 시 재계산
+    if "procedures" not in data or not data.get("procedures"):
+        attrs_raw = data.get("attributes", {})
+        if isinstance(attrs_raw, list):
+            attrs_dict = {a["key"]: a["value"] for a in attrs_raw if "key" in a and "value" in a}
+        else:
+            attrs_dict = attrs_raw or {}
+        sens = int(attrs_dict.get("sensitivity", attrs_dict.get("sens", 0)) >= 50)
+        data["procedures"] = get_recommended_procedures(attrs_dict, sens)
     return data
 
 

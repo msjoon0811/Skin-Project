@@ -2,6 +2,7 @@
 
 const Results = ({ data, onRestart, onHome, onNavigate }) => {
   const [wishlist, setWishlist] = React.useState([]);
+  const [productData, setProductData] = React.useState({});
 
   React.useEffect(() => {
     const fetchWishlist = async () => {
@@ -42,6 +43,26 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
   };
 
   const isWishlisted = (type, title) => wishlist.some(w => w.item_type === type && w.title === title);
+
+  // 제품별 Naver 이미지·가격·링크 로딩
+  React.useEffect(() => {
+    if (!data) return;
+    const prods = data.products || [];
+    if (prods.length === 0) return;
+    prods.forEach((p, i) => {
+      if (p.image || p.link) {
+        setProductData(prev => ({...prev, [i]: { image: p.image||null, price: p.price||null, link: p.link||null }}));
+        return;
+      }
+      const q = encodeURIComponent((p.name || '').trim());
+      const b = encodeURIComponent((p.brand || '').trim());
+      fetch('/api/product/search?q=' + q + '&brand=' + b)
+        .then(r => r.json())
+        .then(d => { if (d.image || d.price) setProductData(prev => ({...prev, [i]: d})); })
+        .catch(() => {});
+    });
+  }, [data ? (data.products||[]).length : 0]);
+
   if (!data) {
     return (
       <div className="page" style={{display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center', minHeight:'80vh', padding: 20}}>
@@ -274,90 +295,104 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
             {products.map((p, i) => {
               const r = parseReason(p.reason);
               const rc = rankColors[i] || rankColors[2];
+              const pd = productData[i] || {};
+              const naverUrl = pd.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'')+' '+(p.name||''))}`;
+              const displayPrice = pd.price || p.price || null;
+              const formattedName = p.name || '';
               return (
                 <div key={i} className="product-card">
-                  {/* 제품 썸네일 */}
+                  {/* 썸네일 — Naver 실제 이미지 or 그라디언트 */}
                   <div style={{
                     aspectRatio:'4/3', background: rc.bg,
-                    backgroundImage: `url('https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=400&q=80')`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    backgroundBlendMode: 'overlay',
                     position:'relative', display:'flex',
                     alignItems:'flex-end', padding:12,
-                    justifyContent:'space-between',
+                    justifyContent:'space-between', overflow:'hidden',
                   }}>
-                    {/* 순위 뱃지 */}
+                    {pd.image && (
+                      <img src={pd.image} alt={p.name}
+                        style={{position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover'}}
+                        onError={e => { e.target.style.display='none'; }}
+                      />
+                    )}
+                    {!pd.image && (
+                      <div style={{
+                        position:'absolute', right:-8, bottom:-20,
+                        fontSize:90, fontFamily:'var(--serif)', fontStyle:'italic',
+                        color:'rgba(255,255,255,0.18)', lineHeight:1,
+                        userSelect:'none', pointerEvents:'none',
+                      }}>{(p.name||p.brand||'S')[0]}</div>
+                    )}
+                    <div style={{
+                      position:'absolute', inset:0,
+                      background: pd.image ? 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' : 'none',
+                    }}/>
                     <span style={{
                       background: rc.badge, color:'white',
                       fontFamily:'var(--mono)', fontSize:10.5,
                       padding:'4px 10px', borderRadius:999,
-                      letterSpacing:'0.08em',
+                      letterSpacing:'0.08em', zIndex:1, position:'relative',
                     }}>
                       {['1ST', '2ND', '3RD'][i] || `${i+1}TH`}
                     </span>
-                    <span className="match">MATCH · {p.match}%</span>
+                    <span className="match" style={{zIndex:1, position:'relative',
+                      color: pd.image ? 'rgba(255,255,255,0.9)' : undefined}}>
+                      MATCH · {p.match}%
+                    </span>
                   </div>
 
                   <div className="product-body">
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                       <div>
                         <span className="product-brand">{p.brand || '식약처 기능성'}</span>
-                        <span className="product-name" style={{lineHeight:1.35, display: 'block'}}>{p.name}</span>
+                        <span className="product-name" style={{lineHeight:1.35, display:'block', wordBreak:'keep-all'}}>{formattedName}</span>
                       </div>
-                      <button type="button" onClick={() => toggleWishlist('product', p.name, p.brand || '식약처 기능성')} style={{background:'none',border:'none',cursor:'pointer',padding:4,color: isWishlisted('product', p.name) ? '#e53935' : 'var(--accent)'}}>
+                      <button type="button" onClick={() => toggleWishlist('product', p.name, p.brand || '식약처 기능성')}
+                        style={{background:'none',border:'none',cursor:'pointer',padding:4,
+                          color: isWishlisted('product', p.name) ? '#e53935' : 'var(--accent)'}}>
                         <Icon name={isWishlisted('product', p.name) ? 'heart-fill' : 'heart'} size={20} />
                       </button>
                     </div>
 
-                    {/* 고민 태그 */}
                     <div className="product-tags" style={{marginTop:6}}>
                       {(p.tags || []).map((t, j) => (
                         <span key={j} className={"product-tag " + (j === 0 ? 'green' : '')}>{t}</span>
                       ))}
                     </div>
 
-                    {/* 구조화된 설명 */}
                     <div style={{marginTop:10, display:'flex', flexDirection:'column', gap:6}}>
                       {r.rank && (
-                        <div style={{
-                          fontSize:11, fontFamily:'var(--mono)', color: rc.badge,
-                          letterSpacing:'0.06em',
-                        }}>{r.rank}</div>
+                        <div style={{fontSize:11, fontFamily:'var(--mono)', color: rc.badge, letterSpacing:'0.06em'}}>{r.rank}</div>
                       )}
-                      {r.ingredients && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--good-soft)',
-                          fontSize:12, color:'var(--good)', lineHeight:1.5,
-                        }}>
+                      {r.desc && (
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{r.desc}</div>
+                      )}
+                      {r.ingredients && !r.ingredients.startsWith("'") && (
+                        <div style={{padding:'8px 10px', borderRadius:8, background:'var(--good-soft)', fontSize:12, color:'var(--good)', lineHeight:1.5}}>
                           <strong>핵심 성분</strong><br/>{r.ingredients}
                         </div>
                       )}
                       {r.avoid && !r.avoid.startsWith('사용법') && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--warn-soft)',
-                          fontSize:12, color:'var(--warn)', lineHeight:1.5,
-                        }}>
-                          <strong>주의 성분 확인</strong><br/>{r.avoid}
+                        <div style={{padding:'8px 10px', borderRadius:8, background:'var(--warn-soft)', fontSize:12, color:'var(--warn)', lineHeight:1.5}}>
+                          <strong>주의 성분</strong><br/>{r.avoid}
                         </div>
                       )}
                       {(p.usage || r.usage) && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--surface-2)',
-                          borderLeft:'2px solid var(--accent)',
-                          fontSize:12, color:'var(--ink-2)', lineHeight:1.5,
-                        }}>
+                        <div style={{padding:'8px 10px', borderRadius:8, background:'var(--surface-2)', borderLeft:'2px solid var(--accent)', fontSize:12, color:'var(--ink-2)', lineHeight:1.5}}>
                           <strong>💡 사용법</strong><br/>{p.usage || r.usage.replace('사용법: ','')}
                         </div>
                       )}
                     </div>
 
                     <div className="product-foot" style={{marginTop:'auto', paddingTop:12}}>
-                      <span className="product-price">{p.price || '가격 문의'}</span>
-                      <button className="btn btn-outline btn-sm">자세히 <Icon name="arrowRight" size={12}/></button>
+                      {displayPrice
+                        ? <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>{displayPrice}</span>
+                        : <span className="product-price">가격 검색</span>
+                      }
+                      <a href={naverUrl} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                        style={{textDecoration:'none', display:'inline-flex', alignItems:'center', gap:5}}>
+                        <Icon name="arrowRight" size={12}/> 구매하러 가기
+                      </a>
                     </div>
                   </div>
                 </div>
