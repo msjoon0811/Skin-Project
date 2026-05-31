@@ -15,44 +15,11 @@ const formatProductName = (name) => {
 };
 
 // Results: 실제 API 데이터 표시 (없으면 mock 데이터 fallback)
-
-const Results = ({ data, onRestart, onHome, onNavigate }) => {
-  const [wishlist, setWishlist] = React.useState([]);
-  const [productData, setProductData] = React.useState({});
-  const [foodPage, setFoodPage] = React.useState(0);
-
-  React.useEffect(() => {
-    const token = localStorage.getItem('skin_token');
-    if (!token) return;
-    fetch('/api/me/wishlist', { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => r.ok ? r.json() : [])
-      .then(d => setWishlist(Array.isArray(d) ? d : []))
-      .catch(() => {});
-  }, []);
-
-  const toggleWishlist = async (type, title, subtitle) => {
-    const existing = wishlist.find(w => w.item_type === type && w.title === title);
-    const token = localStorage.getItem('skin_token');
-    if (!token) { alert('로그인이 필요합니다.'); return; }
-    if (existing) {
-      await fetch(`/api/me/wishlist/${existing.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-      setWishlist(wishlist.filter(w => w.id !== existing.id));
-    } else {
-      await fetch('/api/me/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ item_type: type, title, subtitle })
-      });
-      const res = await fetch('/api/me/wishlist', { headers: { Authorization: 'Bearer ' + token } });
-      if (res.ok) setWishlist(await res.json());
-    }
-  };
-
-  const isWishlisted = (type, title) => wishlist.some(w => w.item_type === type && w.title === title);
-
+const Results = ({ data, onRestart, onHome }) => {
   const today = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'·').replace('.','');
+  const [productData, setProductData] = React.useState({});
 
-  // API 데이터 or mock fallback
+  // API 데이터 or mock fallback — data가 존재하면 API 결과를 그대로 사용(빈 배열 포함)
   const attrs       = data ? (data.attributes || ATTRIBUTES)            : ATTRIBUTES;
   const composite   = (data && data.composite_score != null) ? data.composite_score : 62;
   const skinLabel   = (data && data.skin_type_label) ? data.skin_type_label : '건성 + 민감성 + T존 지성';
@@ -61,19 +28,23 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
   const avoidIngs   = data ? (data.avoid_ingredients || [])             : AVOID_INGREDIENTS;
   const cautionIngs = data ? (data.caution_ingredients || [])           : [];
   const products    = data ? (data.products || [])                      : PRODUCTS;
-  const procedures  = data ? (data.procedures || [])                    : [];
-  const foods       = data ? (data.foods || [])                         : [];
   const mlAvailable = data ? data.ml_available : false;
 
-  // 제품 이미지·가격·링크 — data 바뀔 때마다 초기화 후 재조회
+  // 제품 이미지·가격·링크 로딩
+  // data가 바뀔 때마다 productData 초기화 후 재조회
   React.useEffect(() => {
     setProductData({});
     if (!products || products.length === 0) return;
     products.forEach((p, i) => {
       if (p.image || p.link) {
-        setProductData(prev => ({...prev, [i]: { image: p.image||null, price: p.price||null, link: p.link||null }}));
+        setProductData(prev => ({...prev, [i]: {
+          image: p.image || null,
+          price: p.price || null,
+          link:  p.link  || null,
+        }}));
         return;
       }
+      // 식약처 폴백 제품 — 네이버에서 별도 조회
       const q = encodeURIComponent((p.name || '').trim());
       const b = encodeURIComponent((p.brand || '').trim());
       fetch('/api/product/search?q=' + q + '&brand=' + b)
@@ -292,12 +263,12 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
               const r = parseReason(p.reason);
               const rc = rankColors[i] || rankColors[2];
               const pd = productData[i] || {};
-              const naverUrl = pd.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'')+' '+(p.name||''))}`;
+              const naverUrl = pd.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'') + ' ' + (p.name||''))}`;
               const formattedName = formatProductName(p.name);
-              const displayPrice = pd.price || p.price || null;
+              const displayPrice = p.price || pd.price || null;
               return (
                 <div key={i} className="product-card">
-                  {/* 썸네일 — Naver 실제 이미지 or 그라디언트 */}
+                  {/* 썸네일 */}
                   <div style={{
                     aspectRatio:'4/3', background: rc.bg,
                     position:'relative', display:'flex',
@@ -345,17 +316,10 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
                   </div>
 
                   <div className="product-body">
-                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                      <div>
-                        <span className="product-brand">{p.brand || '식약처 기능성'}</span>
-                        <span className="product-name" style={{wordBreak:'keep-all', overflowWrap:'anywhere', lineHeight:1.45, display:'block'}}>{formattedName}</span>
-                      </div>
-                      <button type="button" onClick={() => toggleWishlist('product', p.name, p.brand || '식약처 기능성')}
-                        style={{background:'none',border:'none',cursor:'pointer',padding:4,flexShrink:0,
-                          color: isWishlisted('product', p.name) ? '#e53935' : 'var(--accent)'}}>
-                        <Icon name={isWishlisted('product', p.name) ? 'heart-fill' : 'heart'} size={18} />
-                      </button>
-                    </div>
+                    <span className="product-brand">{p.brand || '식약처 기능성'}</span>
+                    <span className="product-name" style={{
+                      wordBreak:'keep-all', overflowWrap:'anywhere', lineHeight:1.45,
+                    }}>{formattedName}</span>
 
                     <div className="product-tags" style={{marginTop:6}}>
                       {(p.tags || []).map((t, j) => (
@@ -371,7 +335,7 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
                     )}
 
                     {/* 추천 키워드 / 성분 */}
-                    {r.ingredients && !r.ingredients.startsWith("'") && !r.ingredients.startsWith('네이버') && (
+                    {r.ingredients && !r.ingredients.startsWith('네이버') && (
                       <div style={{
                         marginTop:10, padding:'8px 12px', borderRadius:8,
                         background:'var(--good-soft)',
@@ -386,24 +350,33 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
                     )}
 
                     {/* 사용법 */}
-                    {(p.usage || r.usage) && (
-                      <div style={{marginTop:10, padding:'8px 12px', borderRadius:8, background:'var(--surface)', borderLeft:'3px solid var(--accent)'}}>
+                    {r.usage && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--surface)', borderLeft:'3px solid var(--accent)',
+                      }}>
                         <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--accent-ink)', letterSpacing:'0.06em', marginBottom:3}}>사용법</div>
-                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{p.usage || r.usage.replace('사용법: ','')}</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{r.usage.replace('사용법: ', '')}</div>
                       </div>
                     )}
 
                     {/* 주의 성분 */}
                     {r.avoid && !r.avoid.startsWith('사용법') && (
-                      <div style={{marginTop:10, padding:'8px 12px', borderRadius:8, background:'var(--warn-soft)'}}>
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--warn-soft)',
+                      }}>
                         <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--warn)', letterSpacing:'0.06em', marginBottom:3}}>주의 성분</div>
                         <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--warn)', lineHeight:1.65}}>{r.avoid}</div>
                       </div>
                     )}
 
+                    {/* 가격 + 구매 버튼 */}
                     <div className="product-foot" style={{marginTop:'auto', paddingTop:14}}>
                       {displayPrice && (
-                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>{displayPrice}</span>
+                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>
+                          {displayPrice}
+                        </span>
                       )}
                       <a href={naverUrl} target="_blank" rel="noopener noreferrer"
                         className="btn btn-primary btn-sm"

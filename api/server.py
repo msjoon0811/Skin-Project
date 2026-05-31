@@ -305,40 +305,26 @@ async def _generate_explanation(
         return None
 
 
-_LOCAL_INGREDIENT_DB: dict[str, dict] = {
-    "나이아신아마이드": {"description":"나이아신아마이드(비타민 B3)는 피부 장벽을 강화하고 멜라닌 전달을 억제해 미백 효과를 냅니다. 피지 분비 조절과 모공 축소에도 효과적이며, 자극이 적어 다양한 피부 타입에 사용할 수 있습니다.","benefits":["미백·색소침착 개선","모공 축소·피지 조절","피부 장벽 강화","항염 작용"],"concerns":["고농도(10% 이상) 사용 시 홍조 가능","처음엔 저농도부터 시작 권장"],"suitable_for":"지성, 복합성, 색소침착 피부","concentration":"2~10%","found_in":"토너, 앰플, 세럼, 크림"},
-    "히알루론산": {"description":"히알루론산은 자기 무게의 1000배 이상 수분을 보유할 수 있는 천연 보습 성분입니다. 피부 수분막을 형성하고 탄력을 개선하며, 분자 크기에 따라 표피와 진피 모두에 작용합니다.","benefits":["강력한 수분 보습","피부 탄력 개선","자극 완화","피부 결 개선"],"concerns":["건조한 환경에서는 오히려 수분 빼앗길 수 있음","반드시 보습제와 함께 사용"],"suitable_for":"모든 피부 타입, 특히 건성·탈수성","concentration":"0.1~2%","found_in":"토너, 에센스, 세럼, 크림, 마스크"},
-    "레티놀": {"description":"레티놀(비타민 A)은 피부 세포 재생을 촉진하고 콜라겐 합성을 늘려 주름과 탄력 개선에 효과적입니다. 각질 제거와 모공 정화에도 도움이 되며, 장기 사용 시 피부 톤 균일화에 기여합니다.","benefits":["주름·잔주름 개선","콜라겐 합성 촉진","피부 재생 가속","모공 정화"],"concerns":["초반 각질·건조·홍조 유발 가능","자외선 감수성 증가(야간 사용 권장)","임산부 사용 금지"],"suitable_for":"노화 피부, 주름·색소침착 고민","concentration":"0.025~1%","found_in":"세럼, 크림, 앰플(야간용)"},
-    "세라마이드": {"description":"세라마이드는 피부 각질층을 구성하는 지질 성분으로, 세포 간 결합을 강화해 피부 장벽을 회복시킵니다. 수분 손실을 방지하고 외부 자극으로부터 피부를 보호하며, 민감성 피부 진정에 탁월합니다.","benefits":["피부 장벽 회복","수분 보유력 향상","자극 완화·진정","피부 유연성 개선"],"concerns":["민감성 피부는 소량부터 적용 권장"],"suitable_for":"건성, 민감성, 손상된 피부","concentration":"0.1~3%","found_in":"크림, 로션, 세럼, 토너, 에센스"},
-    "살리실산": {"description":"살리실산(BHA)은 지용성 각질 제거 성분으로 모공 속 피지와 각질을 용해합니다. 항균·항염 작용으로 여드름 균을 억제하고, 모공을 청결하게 유지해 여드름성 피부에 효과적입니다.","benefits":["모공 각질 제거","피지 조절","항균·항염 작용","여드름 예방"],"concerns":["임산부 사용 주의","민감성 피부에 자극 가능","과다 사용 시 건조증 유발"],"suitable_for":"지성, 여드름성, 모공 고민 피부","concentration":"0.5~2%","found_in":"토너, 패드, 앰플, 클렌저"},
-    "판테놀": {"description":"판테놀(비타민 B5)은 피부에서 판토텐산으로 전환되어 세포 재생과 피부 장벽 회복을 돕습니다. 보습력이 뛰어나고 자극이 거의 없어 민감한 피부에도 안전하게 사용할 수 있습니다.","benefits":["수분 공급·보습","피부 재생 촉진","진정·완화","피부 장벽 강화"],"concerns":["극도로 민감한 피부에서 드물게 자극 가능"],"suitable_for":"민감성, 건성, 자극받은 피부","concentration":"0.5~5%","found_in":"에센스, 크림, 로션, 마스크"},
-    "비타민c": {"description":"비타민C(아스코르빅산)는 강력한 항산화 성분으로 멜라닌 생성을 억제해 미백 효과를 냅니다. 콜라겐 합성에 필수적인 조효소로 작용해 피부 탄력과 주름 개선에도 기여합니다.","benefits":["강력한 미백 효과","콜라겐 합성 촉진","항산화·항노화","피부 톤 균일화"],"concerns":["산화 안정성이 낮아 보관 주의","고농도 사용 시 자극 가능","자외선 감수성 증가"],"suitable_for":"색소침착, 노화, 칙칙한 피부","concentration":"5~20%","found_in":"세럼, 앰플, 에센스"},
-    "아데노신": {"description":"아데노신은 세포 에너지 대사에 관여하는 성분으로, 피부 세포 재생을 촉진하고 콜라겐 생성을 늘려 주름을 완화합니다. 식약처 고시 주름 개선 기능성 원료로 인정받은 성분입니다.","benefits":["주름 개선·예방","피부 탄력 향상","세포 재생 촉진"],"concerns":["효과가 서서히 나타남(4~8주)","단독 사용보다 복합 케어 권장"],"suitable_for":"노화, 주름, 탄력 저하 피부","concentration":"0.04%","found_in":"크림, 세럼, 앰플"},
-    "글리세린": {"description":"글리세린은 피부의 천연 보습인자(NMF)와 유사한 수분 흡수제로, 공기 중 수분을 끌어당겨 피부 표면에 수분막을 형성합니다. 안전성이 높아 거의 모든 제품에 기본 보습 원료로 사용됩니다.","benefits":["즉각적인 수분 공급","피부 유연성 향상","피부 장벽 보조"],"concerns":["단독 고농도 사용 시 끈적임"],"suitable_for":"모든 피부 타입","concentration":"5~30%","found_in":"토너, 에센스, 크림, 클렌저 등 대부분"},
-    "병풀추출물": {"description":"병풀(센텔라 아시아티카) 추출물은 아시아티코사이드, 마데카소사이드 등 활성 성분이 피부 재생과 콜라겐 합성을 촉진합니다. 강력한 진정·항염 작용으로 민감성 피부와 손상 피부 회복에 탁월합니다.","benefits":["강력한 진정·항염","피부 재생 촉진","콜라겐 합성 지원","민감 피부 장벽 강화"],"concerns":["국화과 알레르기 있는 경우 주의"],"suitable_for":"민감성, 자극받은 피부, 트러블 피부","concentration":"0.1~5%","found_in":"세럼, 크림, 앰플, 마스크"},
-}
-
 async def _ingredient_info(name: str) -> dict:
-    """성분 상세 정보 — 로컬 DB 우선, 없으면 Claude Haiku 조회."""
-    # 캐시 확인 (빈 dict는 캐시 무시)
-    if name in _ingredient_cache and _ingredient_cache[name]:
+    """Claude Haiku → 성분 상세 정보 dict."""
+    if name in _ingredient_cache:
         return _ingredient_cache[name]
-
-    # 로컬 DB 확인 (나이아신아마이드 등 주요 성분)
-    local_key = name.lower().replace(" ", "").replace("-", "")
-    for k, v in _LOCAL_INGREDIENT_DB.items():
-        if k.lower().replace(" ", "") == local_key:
-            _ingredient_cache[name] = v
-            return v
 
     client = _claude_client()
     if not client:
-        return {"description": f"'{name}' 성분 정보를 불러올 수 없습니다. ANTHROPIC_API_KEY를 설정하세요.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
+        return {"description": "API 키가 설정되지 않았습니다.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
 
     try:
-        prompt = f"""화장품 성분 '{name}'에 대해 아래 JSON 형식으로만 응답하세요 (마크다운 없이 순수 JSON만).
+        prompt = f"""화장품 성분 '{name}'에 대해 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이).
 
-{{"description": "성분 개요 2-3문장 한국어", "benefits": ["효과1", "효과2", "효과3"], "concerns": ["주의사항1"], "suitable_for": "적합 피부 타입", "concentration": "일반 사용 농도", "found_in": "주로 쓰이는 제품 유형"}}"""
+{{
+  "description": "성분 개요 2-3문장 (작용 원리 포함, 한국어)",
+  "benefits": ["효과1", "효과2", "효과3"],
+  "concerns": ["주의사항1"] ,
+  "suitable_for": "적합한 피부 타입 (예: 건성, 민감성)",
+  "concentration": "화장품에서 일반적인 사용 농도 (예: 0.1-2%)",
+  "found_in": "주로 사용되는 제품 유형 (예: 토너, 세럼, 크림)"
+}}"""
         msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=400,
@@ -346,15 +332,10 @@ async def _ingredient_info(name: str) -> dict:
         )
         import re
         text = msg.content[0].text.strip()
-        # 마크다운 코드블록 제거
-        text = re.sub(r"```[a-z]*\n?", "", text).strip()
         m = re.search(r"\{[\s\S]+\}", text)
-        if m:
-            result = json.loads(m.group())
-            if result:  # 빈 dict는 캐싱하지 않음
-                _ingredient_cache[name] = result
-                return result
-        return {"description": f"'{name}' 성분 정보를 가져오지 못했습니다.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
+        result = json.loads(m.group()) if m else {}
+        _ingredient_cache[name] = result
+        return result
     except Exception:
         logger.exception("성분 정보 조회 실패: %s", name)
         return {"description": "정보를 불러올 수 없습니다.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
@@ -393,9 +374,6 @@ def api_me(authorization: str | None = Header(default=None)):
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    # email 컬럼을 username으로 노출
-    if "email" in user and "username" not in user:
-        user = {**user, "username": user["email"]}
     return user
 
 
@@ -527,18 +505,6 @@ async def analyze(
         "explanation":             explanation,
     }
 
-    # NaN/Inf → None 정리 (JSON 직렬화 오류 방지)
-    import math
-    def _sanitize(obj):
-        if isinstance(obj, float):
-            return None if (math.isnan(obj) or math.isinf(obj)) else obj
-        if isinstance(obj, dict):
-            return {k: _sanitize(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_sanitize(v) for v in obj]
-        return obj
-    result = _sanitize(result)
-
     # ⑧ 기록 저장 (full_data 포함)
     user = _current_user(authorization)
     try:
@@ -569,15 +535,6 @@ def history_detail(analysis_id: int, authorization: Optional[str] = Header(defau
     data = get_analysis_detail(analysis_id, user_id=user["id"] if user else None)
     if not data:
         raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없습니다.")
-    # 구버전 기록에 procedures/foods 누락 시 재계산
-    if "procedures" not in data or not data.get("procedures"):
-        attrs_raw = data.get("attributes", {})
-        if isinstance(attrs_raw, list):
-            attrs_dict = {a["key"]: a["value"] for a in attrs_raw if "key" in a and "value" in a}
-        else:
-            attrs_dict = attrs_raw or {}
-        sens = int(attrs_dict.get("sensitivity", attrs_dict.get("sens", 0)) >= 50)
-        data["procedures"] = get_recommended_procedures(attrs_dict, sens)
     return data
 
 

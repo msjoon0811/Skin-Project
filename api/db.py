@@ -56,8 +56,6 @@ def init_db() -> None:
         for col_sql in [
             "ALTER TABLE analyses ADD COLUMN user_id INTEGER",
             "ALTER TABLE analyses ADD COLUMN full_data TEXT",
-            "ALTER TABLE users ADD COLUMN nickname TEXT",
-            "ALTER TABLE users ADD COLUMN settings_json TEXT",
             "ALTER TABLE users RENAME COLUMN email TO username",
         ]:
             try:
