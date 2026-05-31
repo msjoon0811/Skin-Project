@@ -291,67 +291,10 @@ const IngHybrid = ({ avoidList, recList }) => {
   );
 };
 
-// 히스토리 목록 (hook 규칙 준수 — IIFE 패턴 제거)
-const HistoryList = ({ displayHistory, onViewHistoryItem, onViewReport, gradients }) => {
-  const [loadingId, setLoadingId] = React.useState(null);
 
-  const handleClick = async (h) => {
-    const id = h.id || h.analysisId;
-    if (!id || !onViewHistoryItem) { onViewReport && onViewReport(); return; }
-    setLoadingId(id);
-    try {
-      const token   = localStorage.getItem('skin_token');
-      const headers = token ? { Authorization: 'Bearer ' + token } : {};
-      const res     = await fetch(`/api/history/${id}`, { headers });
-      if (!res.ok) throw new Error();
-      const data    = await res.json();
-      onViewHistoryItem(data);
-    } catch {
-      onViewReport && onViewReport();
-    } finally {
-      setLoadingId(null);
-    }
-  };
-
-  if (displayHistory.length === 0) {
-    return (
-      <div style={{padding:'28px 0', textAlign:'center', color:'var(--ink-muted)', fontSize:13}}>
-        아직 분석 기록이 없습니다.
-      </div>
-    );
-  }
-
-  return (
-    <div className="history-list">
-      {displayHistory.map((h, i) => (
-        <div key={i} className="history-row"
-          onClick={() => handleClick(h)}
-          style={{cursor:'pointer', transition:'background .12s ease'}}
-          onMouseEnter={e => e.currentTarget.style.background='var(--bg-2)'}
-          onMouseLeave={e => e.currentTarget.style.background=''}>
-          <div className="thumb" style={{background: gradients[i % gradients.length]}} />
-          <div className="meta">
-            <span className="date">{h.date}</span>
-            <span className="title">{h.label}</span>
-            {h.skinLabel && <span style={{fontSize:11, color:'var(--ink-faint)'}}>{h.skinLabel}</span>}
-          </div>
-          <span style={{fontSize:13, fontWeight:600, minWidth:32, textAlign:'right'}}>
-            {h.score}
-          </span>
-          {h.delta && (
-            <span className={"delta " + (h.up ? '' : 'down')}>{h.delta} {h.up ? '▲' : '▼'}</span>
-          )}
-          <span className="arrow" style={{color: loadingId===(h.id||h.analysisId) ? 'var(--accent)' : 'var(--ink-faint)'}}>
-            {loadingId===(h.id||h.analysisId) ? '…' : '›'}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-};
 
 // Dashboard — 실제 분석 데이터 반영
-const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList }) => {
+const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, onRefreshHistory, analysisData, historyList }) => {
   const hasData = !!(analysisData && analysisData.composite_score != null);
 
   const lastScore    = hasData ? analysisData.composite_score : null;
@@ -384,14 +327,8 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
       }))
     : MOCK_CARE;
 
-  // 히스토리 — 실제 분석 기록 or mock
-  const MOCK_HISTORY = [
-    { date: '2026 · 05 · 22', label: '아침 분석 #14', score: 62, delta: '+4',  up: true  },
-    { date: '2026 · 05 · 15', label: '주간 점검 #13', score: 58, delta: '+1',  up: true  },
-    { date: '2026 · 05 · 08', label: '저녁 분석 #12', score: 57, delta: '-2',  up: false },
-    { date: '2026 · 05 · 01', label: '월간 리포트',   score: 59, delta: '+6',  up: true  },
-  ];
-  const displayHistory = (historyList && historyList.length > 0) ? historyList : MOCK_HISTORY;
+  // 히스토리 — 실제 분석 기록 사용 (없으면 빈 배열)
+  const displayHistory = historyList || [];
 
   const gradients = [
     'linear-gradient(135deg, #E8C9B5, #C9624A)',
@@ -500,71 +437,7 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
             </div>
           </div>
 
-          {/* 점수 추이 차트 */}
-          {displayHistory.length >= 2 && (() => {
-            const pts = [...displayHistory].reverse();
-            const W = 460, H = 90, pad = 14;
-            const scores = pts.map(p => p.score);
-            const minS = Math.min(...scores) - 8;
-            const maxS = Math.max(...scores) + 8;
-            const x = i => pad + (i / (pts.length - 1)) * (W - pad * 2);
-            const y = v => H - pad - ((v - minS) / (maxS - minS)) * (H - pad * 2);
-            const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.score).toFixed(1)}`).join(' ');
-            const area = `${d} L${x(pts.length-1).toFixed(1)},${H} L${x(0).toFixed(1)},${H} Z`;
-            return (
-              <div className="card">
-                <div className="section-head" style={{marginBottom: 10}}>
-                  <div>
-                    <div className="eyebrow">추이 · TREND</div>
-                    <h2 className="h2-serif" style={{margin: '4px 0 0'}}>종합 점수 변화</h2>
-                  </div>
-                  <div className="mono" style={{fontSize:11, color:'var(--ink-muted)'}}>최근 {pts.length}회</div>
-                </div>
-                <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%', height: H, display:'block', overflow:'visible'}}>
-                  <defs>
-                    <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.18"/>
-                      <stop offset="100%" stopColor="var(--accent)" stopOpacity="0"/>
-                    </linearGradient>
-                  </defs>
-                  <path d={area} fill="url(#trendGrad)"/>
-                  <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  {pts.map((p, i) => (
-                    <g key={i}>
-                      <circle cx={x(i)} cy={y(p.score)} r="4" fill="var(--surface)" stroke="var(--accent)" strokeWidth="2"/>
-                      <text x={x(i)} y={y(p.score) - 9} textAnchor="middle"
-                        style={{fontFamily:'var(--mono)', fontSize:10.5, fill:'var(--ink-2)'}}>
-                        {p.score}
-                      </text>
-                    </g>
-                  ))}
-                </svg>
-                <div style={{display:'flex', justifyContent:'space-between', marginTop:4}}>
-                  {pts.map((p, i) => (
-                    <span key={i} style={{fontFamily:'var(--mono)', fontSize:10, color:'var(--ink-faint)'}}>
-                      {p.date.slice(-5)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
 
-          {/* 히스토리 */}
-          <div className="card">
-            <div className="section-head">
-              <div>
-                <div className="eyebrow">기록 · HISTORY</div>
-                <h2 className="h2-serif" style={{margin: '4px 0 0'}}>최근 분석</h2>
-              </div>
-            </div>
-            <HistoryList
-              displayHistory={displayHistory}
-              onViewHistoryItem={onViewHistoryItem}
-              onViewReport={onViewReport}
-              gradients={gradients}
-            />
-          </div>
 
           {/* 성분 하이브리드 */}
           <IngHybrid

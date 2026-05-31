@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.db import (
-    create_session, delete_session, get_analysis_detail, get_history,
+    create_session, delete_history, delete_session, delete_user, get_analysis_detail, get_history,
     get_session_user, init_db, login_user, register_user, save_analysis,
 )
 from src.recommend.lifestyle import compute_lifestyle_deltas, significant_lifestyle_flags
@@ -51,7 +51,8 @@ from src.recommend.ingredient_map import (
     get_recommended_ingredients,
 )
 from src.recommend.explainer import build_skin_summary, explain_recommendation
-
+from src.recommend.procedure_map import get_recommended_procedures
+from src.recommend.food_recommend import FoodRecommender
 logger = logging.getLogger("skin.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -83,7 +84,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8000", "http://localhost:3000"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # ── ML 모델 (지연 로딩 + 캐시) ────────────────────────────────────────
@@ -159,8 +160,8 @@ def _tta_transforms():
     norm = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return [
         transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=0.15), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=-0.15), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(1.15, 1.15)), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(0.85, 0.85)), transforms.ToTensor(), norm]),
     ]
 
 
@@ -335,6 +336,38 @@ async def _ingredient_info(name: str) -> dict:
         return {"description": "정보를 불러올 수 없습니다.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
 
 
+# ── 제품 카테고리별 사용법 매핑 ─────────────────────────────────────
+
+_PRODUCT_USAGE_MAP: list[tuple[list[str], str]] = [
+    (["선크림", "선블록", "선스크린", "sunscreen", "sun", "spf"],
+     "외출 30분 전 얼굴 전체에 동전 크기(2mg/cm²)만큼 넉넉히 발라주세요. 2~3시간마다 덧바르면 효과가 유지됩니다."),
+    (["세럼", "앰플", "serum", "ampoule"],
+     "세안 후 토너로 결을 정돈한 뒤, 소량(펌프 1~2번)을 손끝에 덜어 피부를 살살 눌러주듯 흡수시켜 주세요."),
+    (["에센스", "essence"],
+     "토너 다음 단계에서 적당량을 손바닥에 덜어 체온으로 살짝 데운 후 얼굴 전체에 부드럽게 펴 발라주세요."),
+    (["아이크림", "eye"],
+     "약지손가락으로 눈 주변 뼈 위를 따라 도트를 찍듯 소량 올린 뒤 부드럽게 두드려 흡수시켜 주세요. 눈꺼풀 직접 접촉은 피해주세요."),
+    (["크림", "cream", "밤", "로션", "lotion"],
+     "세럼·에센스가 완전히 흡수된 후 마지막 단계에서 적당량을 얼굴 안쪽에서 바깥쪽으로 부드럽게 펴 발라 수분을 마무리해 주세요."),
+    (["토너", "스킨", "toner", "water", "워터"],
+     "세안 직후 화장솜에 덜어 결을 따라 닦아내거나, 손바닥에 덜어 가볍게 눌러주듯 흡수시켜 주세요."),
+    (["클렌저", "폼클", "클렌징", "cleanser", "wash"],
+     "적당량을 물로 충분히 거품 낸 후 30초~1분간 마사지하듯 세안하고 미온수로 깨끗이 헹궈주세요."),
+    (["마스크", "패드", "mask", "pad"],
+     "세안 후 정돈된 피부에 10~20분간 올려두고, 제거 후 남은 에센스를 가볍게 두드려 흡수시켜 주세요."),
+]
+
+_DEFAULT_USAGE = "세안 후 피부 결을 따라 적당량을 부드럽게 펴 발라주세요."
+
+def _get_product_usage(product_name: str) -> str:
+    """제품명 키워드로 카테고리를 판단하여 맞는 사용법 반환."""
+    name_lower = product_name.lower()
+    for keywords, usage in _PRODUCT_USAGE_MAP:
+        if any(kw in name_lower for kw in keywords):
+            return usage
+    return _DEFAULT_USAGE
+
+
 # ── 인증 엔드포인트 ──────────────────────────────────────────────────
 
 @app.post("/api/register")
@@ -369,6 +402,16 @@ def api_me(authorization: str | None = Header(default=None)):
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
     return user
+
+
+@app.delete("/api/me")
+def api_delete_account(authorization: str | None = Header(default=None)):
+    """회원 탈퇴 — 유저 및 모든 관련 데이터 삭제."""
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    delete_user(user["id"])
+    return {"ok": True, "message": "회원 탈퇴가 완료되었습니다."}
 
 
 # ── 분석/히스토리 엔드포인트 ───────────────────────────────────────────
@@ -453,15 +496,19 @@ async def analyze(
             )
             for _, row in df.iterrows():
                 raw_score = float(row.get("점수", 1))
+                raw_name = str(row.get("제품명", ""))
+                spaced_name = raw_name
+
                 products.append({
                     "brand":  str(row.get("업체명", "")),
-                    "name":   str(row.get("제품명", "")),
+                    "name":   spaced_name,
                     "match":  int(min(99, 75 + raw_score * 3)),
                     "tags":   raw_concerns[:2],
                     "reason": explain_recommendation(
                         cnn_attrs, sensitivity_class, rec_names, avoid_names,
-                        row["제품명"], rank=_ + 1
+                        raw_name, rank=_ + 1
                     ),
+                    "usage":  _get_product_usage(raw_name),
                     "price": "",
                     "shot":  "",
                 })
@@ -473,19 +520,60 @@ async def analyze(
     # ⑦ Claude AI 설명 (구조화 dict)
     explanation = await _generate_explanation(fe_attrs, form, rec_names)
 
+    # ⑧ 음식 추천
+    import datetime
+    today_str = datetime.date.today().strftime("%Y%m%d")
+    food_seed = hash(today_str) % (2**32)
+    food_recommender = FoodRecommender()
+    is_vegan = form.get("vegan", False)
+    food_allergies = _parse_allergies(form.get("food_allergies", ""))
+    foods_raw = food_recommender.recommend(
+        attributes=lifestyle_adjusted_attrs,
+        sensitivity_class=str(sensitivity_class),
+        concerns=raw_concerns,
+        is_vegan=is_vegan,
+        food_allergies=food_allergies,
+        seed=food_seed,
+    )
+    foods = foods_raw if foods_raw else []
+
     caution_names = get_caution_ingredients(lifestyle_adjusted_attrs, sensitivity_class)
+
+    # ── 성분 Fallback: 추천 성분이 비어있을 경우 폼 기반 기본 성분 제공
+    enriched_rec = enrich_rec(rec_names)
+    if not enriched_rec:
+        _skin_type = form.get("skinType", "")
+        _fallback_ings: list[str] = []
+        if _skin_type in ("건성",):
+            _fallback_ings = ["히알루론산", "세라마이드", "글리세린"]
+        elif _skin_type in ("지성", "복합성"):
+            _fallback_ings = ["나이아신아마이드", "살리실산", "판테놀"]
+        elif _skin_type in ("민감성",):
+            _fallback_ings = ["센텔라아시아티카", "판테놀", "마데카소사이드"]
+        else:
+            _fallback_ings = ["판테놀", "글리세린", "나이아신아마이드"]
+        enriched_rec = enrich_rec(_fallback_ings)
+
+    # ── 회피 성분 Fallback: 비어있고 민감도가 있을 때 기본 제공
+    enriched_avoid = enrich_avoid(avoid_names)
+    if not enriched_avoid and sensitivity_class >= 1:
+        enriched_avoid = enrich_avoid(["에탄올", "향료"])
+
     result = {
         "attributes":              fe_attrs,
         "composite_score":         score,
         "skin_type_label":         skin_label,
         "summary":                 summary,
-        "recommended_ingredients": enrich_rec(rec_names),
-        "avoid_ingredients":       enrich_avoid(avoid_names),
+        "recommended_ingredients": enriched_rec,
+        "avoid_ingredients":       enriched_avoid,
         "caution_ingredients":     enrich_caution(caution_names),
         "products":                products,
+        "procedures":              get_recommended_procedures(lifestyle_adjusted_attrs, sensitivity_class),
         "ml_available":            _ml_available(),
         "face_detected":           face_detected,
         "explanation":             explanation,
+        "foods":                   foods,
+        "input_form":              form,
     }
 
     # ⑧ 기록 저장 (full_data 포함)
@@ -512,6 +600,24 @@ def history(authorization: Optional[str] = Header(default=None)):
         return {"items": []}
 
 
+@app.get("/api/history/last_form")
+def last_form(authorization: Optional[str] = Header(default=None)):
+    """최근 분석 기록에서 입력했던 폼 데이터(input_form)를 가져옵니다."""
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    
+    hist = get_history(limit=1, user_id=user["id"])
+    if not hist:
+        raise HTTPException(status_code=404, detail="기록이 없습니다.")
+    
+    full_data = get_analysis_detail(hist[0]["id"], user_id=user["id"])
+    if not full_data or "input_form" not in full_data:
+        raise HTTPException(status_code=404, detail="이전 폼 데이터를 찾을 수 없습니다.")
+        
+    return full_data["input_form"]
+
+
 @app.get("/api/history/{analysis_id}")
 def history_detail(analysis_id: int, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
@@ -521,12 +627,155 @@ def history_detail(analysis_id: int, authorization: Optional[str] = Header(defau
     return data
 
 
+@app.delete("/api/history/{analysis_id}")
+def delete_history_endpoint(analysis_id: int, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="권한이 없습니다.")
+    success = delete_history(analysis_id, user_id=user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없거나 삭제 권한이 없습니다.")
+    return {"ok": True}
+
+
 @app.get("/api/ingredient/{name}")
 async def ingredient_detail(name: str):
     info = await _ingredient_info(name)
     return info
 
 
+
+# ── 통합 사용자 데이터 관리 API ──────────────────────────────────────
+
+from pydantic import BaseModel
+from typing import Optional
+from fastapi import Header, HTTPException
+from api.db import (
+    update_user_info, get_user_by_id,
+    add_diary, get_diaries, delete_diary,
+    add_notification, get_notifications, mark_notifications_read, delete_notification
+)
+
+class UserSettingsUpdate(BaseModel):
+    nickname: Optional[str] = None
+    settings_json: Optional[str] = None
+
+@app.patch("/api/me")
+def update_me(payload: UserSettingsUpdate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    update_user_info(user["id"], nickname=payload.nickname, settings_json=payload.settings_json)
+    return {"ok": True}
+
+class DiaryCreate(BaseModel):
+    id: str
+    date: str
+    food: str
+    skin_effect: Optional[str] = None
+    notes: Optional[str] = None
+
+@app.get("/api/me/diary")
+def get_my_diary(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    return {"items": get_diaries(user["id"])}
+
+@app.post("/api/me/diary")
+def create_my_diary(payload: DiaryCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    add_diary(payload.id, user["id"], payload.date, payload.food, payload.skin_effect, payload.notes)
+    return {"ok": True}
+
+@app.delete("/api/me/diary/{id}")
+def delete_my_diary(id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    if not delete_diary(id, user["id"]):
+        raise HTTPException(status_code=404)
+    return {"ok": True}
+
+class NotificationCreate(BaseModel):
+    id: str
+    type: str
+    title: str
+    message: str
+    created_at: Optional[str] = None
+
+@app.get("/api/me/notifications")
+def get_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    return {"items": get_notifications(user["id"])}
+
+@app.post("/api/me/notifications")
+def create_my_notification(payload: NotificationCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    add_notification(payload.id, user["id"], payload.type, payload.title, payload.message, payload.created_at)
+    return {"ok": True}
+
+@app.put("/api/me/notifications/read")
+def read_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    mark_notifications_read(user["id"])
+    return {"ok": True}
+
+@app.delete("/api/me/notifications/{id}")
+def delete_my_notification(id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401)
+    if not delete_notification(id, user["id"]):
+        raise HTTPException(status_code=404)
+    return {"ok": True}
+
+
+# ── 위시리스트 API ────────────────────────────────────────────────
+class WishlistCreate(BaseModel):
+    item_type: str  # 'product' or 'treatment'
+    title: str
+    subtitle: str | None = None
+
+@app.get("/api/me/wishlist")
+def api_get_wishlist(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    from api.db import get_wishlist
+    return get_wishlist(user["id"])
+
+@app.post("/api/me/wishlist")
+def api_add_wishlist(payload: WishlistCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    from api.db import add_wishlist
+    item_id = add_wishlist(user["id"], payload.item_type, payload.title, payload.subtitle)
+    return {"ok": True, "id": item_id}
+
+@app.delete("/api/me/wishlist/{item_id}")
+def api_delete_wishlist(item_id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    from api.db import delete_wishlist
+    success = delete_wishlist(item_id, user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="권한이 없거나 찾을 수 없습니다.")
+    return {"ok": True}
+
+
 _FRONTEND_DIR = Path(__file__).parent.parent / "design"
 if _FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
+
+

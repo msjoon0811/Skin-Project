@@ -34,10 +34,18 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 ### 3. 데모 앱 실행
 
+**방법 A) 정식 디자인 프론트엔드 (권장)**
+React(JSX) 및 CSS 디자인이 모두 적용된 완성본 웹 화면을 보려면 FastAPI 백엔드 서버를 띄워야 합니다.
+```bash
+uvicorn api.server:app --reload
+```
+브라우저에서 `http://localhost:8000` 로 접속
+
+**방법 B) 기능 테스트용 프로토타입 UI**
+디자인 요소 없이 백엔드/ML 로직 동작 여부만 빠르게 테스트하려면 Streamlit 앱을 사용합니다.
 ```bash
 streamlit run app/streamlit_app.py
 ```
-
 브라우저에서 `http://localhost:8501` 로 접속
 
 ---
