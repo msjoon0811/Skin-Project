@@ -598,27 +598,11 @@ async def _naver_product_recommend(search_concerns: list[str], raw_concerns: lis
     seen_brands: set[str] = set()
     match_scores = [92, 87, 83]
 
-    # 제품 유형별 사용법
-    def _usage_for(title: str, query: str) -> str:
-        t = (title + query).lower()
-        if any(k in t for k in ["선크림", "spf", "자외선"]):
-            return "외출 30분 전 자외선 노출 부위에 충분히 도포하세요."
-        if any(k in t for k in ["앰플", "세럼"]):
-            return "토너 후 2~3방울 덜어 얼굴 전체에 가볍게 흡수시키세요."
-        if any(k in t for k in ["에센스"]):
-            return "토너 후 적당량을 손바닥에 덜어 얼굴에 부드럽게 펴 바르세요."
-        if any(k in t for k in ["크림", "로션", "에멀전"]):
-            return "스킨케어 마지막 단계에 적당량을 얼굴에 고르게 펴 바르세요."
-        if any(k in t for k in ["패드", "필링"]):
-            return "세안 후 패드 1장으로 결 방향으로 부드럽게 닦아내세요. 주 2~3회 사용을 권장합니다."
-        if any(k in t for k in ["토너", "스킨"]):
-            return "세안 후 화장솜 또는 손바닥으로 가볍게 패팅하며 흡수시키세요."
-        return "세안 후 스킨케어 단계에 맞게 적정량을 사용하세요."
+    from src.recommend.explainer import _infer_product_type
 
-    # 핵심 성분 키워드 추출
+    # 핵심 성분 키워드 추출 (쿼리에서 제품 유형 단어 제거)
     def _key_ingredients(query: str) -> str:
-        # 쿼리에서 제품 유형 단어 제거 후 성분만 추출
-        type_words = ["앰플","세럼","에센스","크림","토너","패드","필링","로션","미스트","선크림","젤"]
+        type_words = {"앰플","세럼","에센스","크림","토너","패드","필링","로션","미스트","선크림","젤","마스크","팩"}
         parts = [w for w in query.split() if w not in type_words]
         return " · ".join(parts) if parts else query
 
@@ -660,6 +644,7 @@ async def _naver_product_recommend(search_concerns: list[str], raw_concerns: lis
                         "주요 고민 완화를 돕는 보조 케어 제품입니다.",
                         "피부 전반의 밸런스를 잡아주는 보완 제품입니다.",
                     ]
+                    _, usage = _infer_product_type(title + " " + query)
                     products.append({
                         "brand":  brand,
                         "name":   title,
@@ -669,7 +654,7 @@ async def _naver_product_recommend(search_concerns: list[str], raw_concerns: lis
                             f"[{rank_labels[rank-1]}] · "
                             f"{rank_descs[rank-1]} · "
                             f"{_key_ingredients(query)} · "
-                            f"사용법: {_usage_for(title, query)}"
+                            f"사용법: {usage}"
                         ),
                         "price":  price_str,
                         "image":  it.get("image", ""),
