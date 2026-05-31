@@ -26,7 +26,9 @@ const IngUnified = ({ avoidList, recList }) => {
     const txt = input.trim();
     if (!txt) return;
     setLoading(true); setHits(null); setDictResult(null);
+
     if (isFullList(txt)) {
+      // 전성분 모드
       const lower = txt.toLowerCase();
       const found   = avoidList.filter(i => lower.includes(i.name.toLowerCase()));
       const present = recList.filter(i => lower.includes(i.name.toLowerCase()));
@@ -34,11 +36,13 @@ const IngUnified = ({ avoidList, recList }) => {
       setHits({ found, present, missing });
       setExpanded({});
     } else {
+      // 단일 성분 사전 모드
       setDictName(txt);
       try {
         const res  = await fetch(`/api/ingredient/${encodeURIComponent(txt)}`);
         const data = await res.json();
         setDictResult(data);
+        // 동시에 피부 적합 여부도 확인 (avoid/rec 리스트 기준)
         const lower = txt.toLowerCase();
         const inAvoid = avoidList.filter(i => lower.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(lower));
         const inRec   = recList.filter(i => lower.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(lower));
@@ -103,7 +107,7 @@ const IngUnified = ({ avoidList, recList }) => {
 
       <div style={{display:'flex', gap:8, alignItems:'flex-start'}}>
         <textarea className="input" rows={3}
-          placeholder={'성분명 하나  →  나이아신아마이드\n전성분 붙여넣기  →  Water, Glycerin, Niacinamide...'}
+          placeholder={'성분명 하나  →  나이아신아마이드\n전성분 붙여넣기  →  Water, Glycerin, Niacinamide, Ethanol...'}
           value={input}
           onChange={e => { setInput(e.target.value); setHits(null); setDictResult(null); }}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !isFullList(input)) { e.preventDefault(); analyze(); }}}
@@ -162,6 +166,7 @@ const IngUnified = ({ avoidList, recList }) => {
       {/* 스캐너 결과 */}
       {hits && (
         <div style={{marginTop:14, display:'flex', flexDirection:'column', gap:10}}>
+          {/* 주의 성분 */}
           {hits.found.length > 0 ? (
             <div style={{borderRadius:10, border:'1px solid var(--warn-soft)', overflow:'hidden'}}>
               <div style={{padding:'9px 14px', background:'var(--warn-soft)',
@@ -177,6 +182,8 @@ const IngUnified = ({ avoidList, recList }) => {
               <Icon name="check" size={13}/> 주의 성분이 발견되지 않았어요
             </div>
           )}
+
+          {/* 권장 성분 포함 */}
           {hits.present.length > 0 && (
             <div style={{borderRadius:10, border:'1px solid var(--good-soft)', overflow:'hidden'}}>
               <div style={{padding:'9px 14px', background:'var(--good-soft)',
@@ -187,6 +194,8 @@ const IngUnified = ({ avoidList, recList }) => {
               {hits.present.map((ing, idx) => renderIngRow(ing, idx, 'good'))}
             </div>
           )}
+
+          {/* 권장 성분 미포함 (전성분 모드만) */}
           {isFullList(input) && hits.missing.length > 0 && (
             <div style={{padding:'10px 14px', borderRadius:10, background:'var(--bg-2)', border:'1px solid var(--line-2)'}}>
               <div style={{fontWeight:500, color:'var(--ink-2)', fontSize:12.5, marginBottom:8}}>
@@ -208,11 +217,171 @@ const IngUnified = ({ avoidList, recList }) => {
   );
 };
 
+// 히스토리 목록
+const HistoryList = ({ displayHistory, onViewHistoryItem, onViewReport, gradients, onDelete }) => {
+  const [loadingId, setLoadingId] = React.useState(null);
+  const [deletingId, setDeletingId] = React.useState(null);
+  const [expanded, setExpanded] = React.useState(false);
 
+  const VISIBLE = 4;
+  const visible = expanded ? displayHistory : displayHistory.slice(0, VISIBLE);
+  const hiddenCount = displayHistory.length - VISIBLE;
+
+  const handleClick = async (h) => {
+    const id = h.id || h.analysisId;
+    if (!id || !onViewHistoryItem) { onViewReport && onViewReport(); return; }
+    setLoadingId(id);
+    try {
+      const token = localStorage.getItem('skin_token');
+      const headers = token ? { Authorization: 'Bearer ' + token } : {};
+      const res = await fetch(`/api/history/${id}`, { headers });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      onViewHistoryItem(data);
+    } catch {
+      onViewReport && onViewReport();
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const handleDelete = async (e, h) => {
+    e.stopPropagation();
+    const id = h.id || h.analysisId;
+    setDeletingId(id || h.date);
+    // 서버 삭제 시도 (id 있을 때만, fire-and-forget)
+    if (id) {
+      try {
+        const token = localStorage.getItem('skin_token');
+        const headers = token ? { Authorization: 'Bearer ' + token } : {};
+        await fetch(`/api/history/${id}`, { method: 'DELETE', headers });
+      } catch {}
+    }
+    onDelete && onDelete(h);
+    setDeletingId(null);
+  };
+
+  if (displayHistory.length === 0) {
+    return (
+      <div style={{padding:'28px 0', textAlign:'center', color:'var(--ink-muted)', fontSize:13}}>
+        아직 분석 기록이 없습니다.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="history-list">
+        {visible.map((h, i) => {
+          const hid = h.id || h.analysisId;
+          const isDeleting = deletingId === (hid || h.date);
+          const isLoading  = loadingId === hid;
+          return (
+            <div key={hid || i} className="history-row"
+              onClick={() => handleClick(h)}
+              style={{cursor:'pointer', transition:'background .12s ease'}}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg-2)'}
+              onMouseLeave={e => e.currentTarget.style.background=''}>
+              <div className="thumb" style={{background: gradients[i % gradients.length]}} />
+              <div className="meta">
+                <span className="date">{h.date}</span>
+                <span className="title">{h.label}</span>
+                {h.skinLabel && <span style={{fontSize:11, color:'var(--ink-faint)'}}>{h.skinLabel}</span>}
+              </div>
+              {/* 점수 + 델타 (고정 컬럼) */}
+              <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:42}}>
+                <span style={{fontSize:13, fontWeight:600}}>{h.score}</span>
+                {h.delta
+                  ? <span className={"delta " + (h.up ? '' : 'down')} style={{fontSize:11}}>
+                      {h.delta} {h.up ? '▲' : '▼'}
+                    </span>
+                  : <span style={{fontSize:11, color:'transparent'}}>—</span>
+                }
+              </div>
+              {/* 삭제 + 이동 (고정 컬럼) */}
+              <div style={{display:'flex', alignItems:'center', gap:4}}>
+                <button
+                  onClick={(e) => handleDelete(e, h)}
+                  disabled={isDeleting}
+                  title="기록 삭제"
+                  style={{
+                    background:'none', border:'none',
+                    cursor: isDeleting ? 'default' : 'pointer',
+                    padding:'5px', color: isDeleting ? 'var(--ink-faint)' : 'var(--ink-muted)',
+                    borderRadius:6, display:'flex', alignItems:'center', flexShrink:0,
+                    transition:'color .15s',
+                  }}
+                  onMouseEnter={e => { if (!isDeleting) e.currentTarget.style.color='var(--warn)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = isDeleting ? 'var(--ink-faint)' : 'var(--ink-muted)'; }}
+                >
+                  {isDeleting
+                    ? <span style={{fontSize:12}}>…</span>
+                    : <Icon name="trash" size={13}/>
+                  }
+                </button>
+                <span className="arrow" style={{
+                  color: isLoading ? 'var(--accent)' : 'var(--ink-faint)',
+                  fontSize:18, lineHeight:1,
+                }}>
+                  {isLoading ? '…' : '›'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {hiddenCount > 0 && !expanded && (
+        <button onClick={() => setExpanded(true)}
+          className="btn btn-ghost btn-sm"
+          style={{width:'100%', marginTop:10, justifyContent:'center', gap:6}}>
+          더보기 ({hiddenCount}개) <Icon name="chevronDown" size={13}/>
+        </button>
+      )}
+      {expanded && displayHistory.length > VISIBLE && (
+        <button onClick={() => setExpanded(false)}
+          className="btn btn-ghost btn-sm"
+          style={{width:'100%', marginTop:10, justifyContent:'center', gap:6}}>
+          접기 <Icon name="chevronUp" size={13}/>
+        </button>
+      )}
+    </div>
+  );
+};
+
+const MOCK_HISTORY = [
+  { date: '2026 · 05 · 22', label: '피부 분석', score: 62, delta: '+4', up: true  },
+  { date: '2026 · 05 · 15', label: '피부 분석', score: 58, delta: '+1', up: true  },
+  { date: '2026 · 05 · 08', label: '피부 분석', score: 57, delta: '-2', up: false },
+  { date: '2026 · 05 · 01', label: '피부 분석', score: 59, delta: '+6', up: true  },
+];
 
 // Dashboard — 실제 분석 데이터 반영
-const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, onRefreshHistory, analysisData, historyList }) => {
+const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList, onDeleteHistory }) => {
   const hasData = !!(analysisData && analysisData.composite_score != null);
+  const [localHistory, setLocalHistory] = React.useState(null);
+
+  // historyList prop 변경 시 로컬 상태 동기화
+  // 삭제 후 App 상태가 업데이트되면 이 effect가 재실행되어 올바른 목록으로 초기화
+  React.useEffect(() => {
+    if (historyList) {
+      setLocalHistory(historyList.length > 0 ? historyList : []);
+    }
+  }, [historyList]);
+
+  const handleDeleteHistory = (item) => {
+    // 1. Dashboard 로컬 상태 즉시 반영 (UI 즉각 응답)
+    setLocalHistory(prev => {
+      const base = prev !== null ? prev : (historyList && historyList.length > 0 ? historyList : MOCK_HISTORY);
+      const itemId = item.id || item.analysisId;
+      return base.filter(h => {
+        if (itemId) return (h.id || h.analysisId) !== itemId;
+        return !(h.date === item.date && h.score === item.score);
+      });
+    });
+    // 2. App 상위 상태도 업데이트 → 페이지 이동 후 돌아와도 유지
+    onDeleteHistory && onDeleteHistory(item);
+  };
 
   const lastScore    = hasData ? analysisData.composite_score : null;
   const lastSkin     = hasData ? analysisData.skin_type_label : null;
@@ -244,8 +413,10 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, onRefreshHistory,
       }))
     : MOCK_CARE;
 
-  // 히스토리 — 실제 분석 기록 사용 (없으면 빈 배열)
-  const displayHistory = historyList || [];
+  // 히스토리 — 로그인 상태면 실제 기록(없으면 빈 배열), 비로그인이면 mock
+  const isLoggedIn = !!localStorage.getItem('skin_token');
+  const displayHistory = localHistory !== null ? localHistory
+    : (historyList && historyList.length > 0 ? historyList : (isLoggedIn ? [] : MOCK_HISTORY));
 
   const gradients = [
     'linear-gradient(135deg, #E8C9B5, #C9624A)',
@@ -342,7 +513,72 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, onRefreshHistory,
             </div>
           </div>
 
+          {/* 점수 추이 차트 */}
+          {displayHistory.length >= 2 && (() => {
+            const pts = [...displayHistory].reverse();
+            const W = 460, H = 90, pad = 14;
+            const scores = pts.map(p => p.score);
+            const minS = Math.min(...scores) - 8;
+            const maxS = Math.max(...scores) + 8;
+            const x = i => pad + (i / (pts.length - 1)) * (W - pad * 2);
+            const y = v => H - pad - ((v - minS) / (maxS - minS)) * (H - pad * 2);
+            const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.score).toFixed(1)}`).join(' ');
+            const area = `${d} L${x(pts.length-1).toFixed(1)},${H} L${x(0).toFixed(1)},${H} Z`;
+            return (
+              <div className="card">
+                <div className="section-head" style={{marginBottom: 10}}>
+                  <div>
+                    <div className="eyebrow">추이 · TREND</div>
+                    <h2 className="h2-serif" style={{margin: '4px 0 0'}}>종합 점수 변화</h2>
+                  </div>
+                  <div className="mono" style={{fontSize:11, color:'var(--ink-muted)'}}>최근 {pts.length}회</div>
+                </div>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%', height: H, display:'block', overflow:'visible'}}>
+                  <defs>
+                    <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.18"/>
+                      <stop offset="100%" stopColor="var(--accent)" stopOpacity="0"/>
+                    </linearGradient>
+                  </defs>
+                  <path d={area} fill="url(#trendGrad)"/>
+                  <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  {pts.map((p, i) => (
+                    <g key={i}>
+                      <circle cx={x(i)} cy={y(p.score)} r="4" fill="var(--surface)" stroke="var(--accent)" strokeWidth="2"/>
+                      <text x={x(i)} y={y(p.score) - 9} textAnchor="middle"
+                        style={{fontFamily:'var(--mono)', fontSize:10.5, fill:'var(--ink-2)'}}>
+                        {p.score}
+                      </text>
+                    </g>
+                  ))}
+                </svg>
+                <div style={{display:'flex', justifyContent:'space-between', marginTop:4}}>
+                  {pts.map((p, i) => (
+                    <span key={i} style={{fontFamily:'var(--mono)', fontSize:10, color:'var(--ink-faint)'}}>
+                      {p.date.slice(-5)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
+          {/* 히스토리 */}
+          <div className="card">
+            <div className="section-head">
+              <div>
+                <div className="eyebrow">기록 · HISTORY</div>
+                <h2 className="h2-serif" style={{margin: '4px 0 0'}}>최근 분석</h2>
+              </div>
+            </div>
+            <HistoryList
+              displayHistory={displayHistory}
+              onViewHistoryItem={onViewHistoryItem}
+              onViewReport={onViewReport}
+              gradients={gradients}
+              onDelete={handleDeleteHistory}
+            />
+          </div>
 
           {/* 성분 검사·사전 통합 */}
           <IngUnified

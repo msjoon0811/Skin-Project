@@ -132,6 +132,11 @@ def get_recommended_ingredients(
         for ing in ATTRIBUTE_TO_RECOMMENDED["acne_high"]:
             priority[ing] = max(priority.get(ing, 0), 70)
 
+    # 홍조는 진정·민감 성분으로 처리
+    if form_concerns and "홍조" in form_concerns:
+        for ing in ATTRIBUTE_TO_RECOMMENDED["sensitive"]:
+            priority[ing] = max(priority.get(ing, 0), 70)
+
     if form_sensitivity == 1:
         for ing in ATTRIBUTE_TO_RECOMMENDED["sensitive"]:
             priority[ing] = max(priority.get(ing, 0), 75)

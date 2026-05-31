@@ -319,19 +319,19 @@ const Clinic = ({ analysisData, onGoAnalyze, authHeaders }) => {
           {result.summary && (
             <div className="card" style={{
               padding:26, marginBottom:16,
-              background:'linear-gradient(160deg, #1A2A3E, #2B4570)',
+              background:'linear-gradient(160deg,var(--surface-2),var(--surface))',
             }}>
               <div style={{
                 display:'inline-flex', alignItems:'center', gap:6,
                 padding:'3px 12px', borderRadius:20,
-                background:'rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.75)',
+                background:'var(--accent-soft)', color:'var(--accent-ink)',
                 fontSize:11, marginBottom:14,
               }}>
                 <Icon name="sparkle" size={11}/> Claude AI 종합 소견
               </div>
               <div style={{
                 fontFamily:'var(--serif-ko)', fontSize:16.5,
-                lineHeight:1.85, color:'rgba(255,255,255,0.9)',
+                lineHeight:1.85, color:'var(--ink)',
               }}>
                 {result.summary}
               </div>
