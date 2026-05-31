@@ -83,7 +83,7 @@ const Results = ({ data, onRestart, onHome }) => {
             AI가 7가지 피부 속성을 분석하고, 입력하신 알러지·라이프스타일 정보와 함께 종합한 결과입니다.
           </div>
           <div className="pill-row" style={{marginTop: 14}}>
-            <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>
+            <span className="pill">
               {mlAvailable ? '사진 분석 완료' : '설문 기반 분석'}
             </span>
             <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>성분 DB 매칭 완료</span>
@@ -360,12 +360,29 @@ const Results = ({ data, onRestart, onHome }) => {
                       </div>
                     )}
 
-                    {/* 가격 */}
+                    {/* 주의 성분 */}
+                    {r.avoid && !r.avoid.startsWith('사용법') && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--warn-soft)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--warn)', letterSpacing:'0.06em', marginBottom:3}}>주의 성분</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--warn)', lineHeight:1.65}}>{r.avoid}</div>
+                      </div>
+                    )}
+
+                    {/* 가격 + 구매 버튼 */}
                     <div className="product-foot" style={{marginTop:'auto', paddingTop:14}}>
-                      {displayPrice
-                        ? <span style={{fontFamily:'var(--mono)', fontSize:16, fontWeight:700, color:'var(--ink)'}}>{displayPrice}</span>
-                        : <span style={{fontFamily:'var(--mono)', fontSize:13, color:'var(--ink-muted)'}}>가격 정보 없음</span>
-                      }
+                      {displayPrice && (
+                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>
+                          {displayPrice}
+                        </span>
+                      )}
+                      <a href={naverUrl} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                        style={{textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6}}>
+                        <Icon name="arrowRight" size={13}/> 구매하러 가기
+                      </a>
                     </div>
                   </div>
                 </div>

@@ -38,8 +38,3 @@ Thumbs.db
 # 濡쒓렇
 *.log
 logs/
-
-# AI Hub 학습 데이터셋 (대용량)
-028.*/
-tmp_train.txt
-*.tmp
