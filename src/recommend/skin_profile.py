@@ -86,29 +86,29 @@ def build_frontend_attrs(
 def composite_score(fe_attrs: list[dict]) -> int:
     """7속성 → 종합 피부 점수 (0~100).
 
-    pore·oil에 높은 가중치(여드름·피지 문제 반영),
-    pigment·wrinkle·sens는 일반 가중치.
-    설계 기준:
-      심한 여드름(oil=78, pore=70) → ~55점
-      보통 피부(oil=55, pore=45)   → ~68점
-      깨끗한 피부(oil=25, pore=20) → ~84점
+    설계 기준 (pore·oil 여드름 연관 1.5배 가중):
+      심한 여드름 (oil≈78, pore≈70) → 25점
+      보통 피부   (oil≈55, pore≈45) → 50점
+      깨끗한 피부 (oil≈25, pore≈20) → 82점
+    2차 곡선(p_avg 기반) + 좋은 속성 보정
     """
     attr = {a["key"]: a["value"] for a in fe_attrs}
 
     # 문제 속성 가중 평균 (pore·oil 여드름 연관 1.5배 가중)
     WEIGHTS = {"oil": 1.5, "pore": 1.4, "sens": 1.0, "pigment": 0.9, "wrinkle": 0.8}
-    total_w = sum(WEIGHTS.values())  # 5.6
-    p_avg = sum(attr.get(k, 50) * w for k, w in WEIGHTS.items()) / total_w
+    total_w = sum(WEIGHTS.values())
+    p = sum(attr.get(k, 50) * w for k, w in WEIGHTS.items()) / total_w
 
     # 좋은 속성 평균
     g_avg = (attr.get("hydro", 60) + attr.get("tone", 70)) / 2
 
-    # 문제 가중치 65%, 좋은 속성 35%
-    raw = g_avg * 0.35 + (100 - p_avg) * 0.65
+    # 2차 곡선: p=20→82, p=43→50, p=57→25 에 맞춘 계수
+    base = -0.0107 * p * p - 0.717 * p + 100.6
 
-    # 스케일링: raw=0→20, raw=50→60, raw=75→80, raw=100→97
-    scaled = raw * 0.72 + 24
-    return max(20, min(100, round(scaled)))
+    # 좋은 속성 보정 (기준 70 대비 ±15% 조정)
+    adjustment = (g_avg - 70) * 0.15
+
+    return max(15, min(100, round(base + adjustment)))
 
 
 def skin_type_label(fe_attrs: list[dict], form: dict) -> str:
