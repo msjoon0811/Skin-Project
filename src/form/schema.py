@@ -32,6 +32,15 @@ class AllergyIngredient(str, Enum):
     OTHER = "기타"
 
 
+class FoodAllergy(str, Enum):
+    SEAFOOD = "해산물"
+    NUT = "견과류"
+    DAIRY = "유제품"
+    EGG = "달걀"
+    SOY = "대두"
+    OTHER = "기타"
+
+
 class SkinConcern(str, Enum):
     ACNE = "여드름"
     PORE = "모공"
@@ -72,12 +81,13 @@ class UserFormInput:
     budget: BudgetRange
     categories: List[ProductCategory]
 
-    # 선택 입력 (5)
+    # 선택 입력 (5+1)
     seasonal_change: Optional[str] = None
     uv_exposure: Optional[str] = None
     stress_level: Optional[str] = None
     is_pregnant: bool = False
     vegan_preference: bool = False
+    food_allergies: List[FoodAllergy] = field(default_factory=list)
 
     def __post_init__(self):
         if len(self.concerns) > 3:
