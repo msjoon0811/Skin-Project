@@ -162,7 +162,7 @@ def _tta_transforms():
     return [
         transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), norm]),
         transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=0.15), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=-0.15), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=0.10, contrast=0.10), transforms.ToTensor(), norm]),
     ]
 
 
