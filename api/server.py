@@ -58,7 +58,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 class AuthBody(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -373,20 +373,20 @@ def _get_product_usage(product_name: str) -> str:
 @app.post("/api/register")
 def api_register(body: AuthBody):
     try:
-        user = register_user(body.email, body.password)
+        user = register_user(body.username, body.password)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     token = create_session(user["id"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+    return {"token": token, "user": {"id": user["id"], "username": user["email"]}}
 
 
 @app.post("/api/login")
 def api_login(body: AuthBody):
-    user = login_user(body.email, body.password)
+    user = login_user(body.username, body.password)
     if not user:
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
     token = create_session(user["id"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+    return {"token": token, "user": {"id": user["id"], "username": user["email"]}}
 
 
 @app.post("/api/logout")
@@ -401,6 +401,9 @@ def api_me(authorization: str | None = Header(default=None)):
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    # email 컬럼을 username으로 노출
+    if "email" in user and "username" not in user:
+        user = {**user, "username": user["email"]}
     return user
 
 

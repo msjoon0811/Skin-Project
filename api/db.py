@@ -28,7 +28,7 @@ def init_db() -> None:
         con.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                email        TEXT    NOT NULL UNIQUE,
+                username     TEXT    NOT NULL UNIQUE,
                 password_hash TEXT   NOT NULL,
                 created_at   TEXT    NOT NULL
             )
@@ -93,6 +93,7 @@ def init_db() -> None:
             "ALTER TABLE analyses ADD COLUMN full_data TEXT",
             "ALTER TABLE users ADD COLUMN nickname TEXT",
             "ALTER TABLE users ADD COLUMN settings_json TEXT",
+            "ALTER TABLE users RENAME COLUMN email TO username",
         ]:
             try:
                 con.execute(col_sql)
@@ -106,33 +107,33 @@ def _hash_password(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
 
 
-def register_user(email: str, password: str) -> dict:
-    """신규 가입 → {"id", "email"} 반환. 이메일 중복 시 ValueError."""
+def register_user(username: str, password: str) -> dict:
+    """신규 가입 → {"id", "email"} 반환. 아이디 중복 시 ValueError."""
     salt = secrets.token_hex(16)
     pwd_hash = f"{salt}:{_hash_password(password, salt)}"
     with _conn() as con:
         try:
             cur = con.execute(
-                "INSERT INTO users (email, password_hash, created_at) VALUES (?,?,?)",
-                (email, pwd_hash, datetime.now().isoformat()),
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?,?,?)",
+                (username, pwd_hash, datetime.now().isoformat()),
             )
-            return {"id": cur.lastrowid, "email": email}
+            return {"id": cur.lastrowid, "email": username}
         except sqlite3.IntegrityError:
-            raise ValueError("이미 사용 중인 이메일입니다.")
+            raise ValueError("이미 사용 중인 아이디입니다.")
 
 
-def login_user(email: str, password: str) -> dict | None:
+def login_user(username: str, password: str) -> dict | None:
     """로그인 시도 → {"id", "email"} 또는 None."""
     with _conn() as con:
         row = con.execute(
-            "SELECT id, email, password_hash FROM users WHERE email=?", (email,)
+            "SELECT id, username, password_hash FROM users WHERE username=?", (username,)
         ).fetchone()
     if not row:
         return None
     salt, stored = row["password_hash"].split(":", 1)
     if _hash_password(password, salt) != stored:
         return None
-    return {"id": row["id"], "email": row["email"]}
+    return {"id": row["id"], "email": row["username"]}
 
 
 def create_session(user_id: int) -> str:
@@ -150,7 +151,7 @@ def get_session_user(token: str) -> dict | None:
     """토큰 → {"id", "email"} 또는 None."""
     with _conn() as con:
         row = con.execute(
-            """SELECT u.id, u.email FROM users u
+            """SELECT u.id, u.username AS email FROM users u
                JOIN sessions s ON s.user_id = u.id
                WHERE s.token=?""",
             (token,),
