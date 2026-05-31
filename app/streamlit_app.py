@@ -1,4 +1,4 @@
-"""Streamlit 데모 앱 (Phase 7 완성본).
+"""Streamlit 데모 앱.
 
 이미지(선택) + 폼 입력 → 피부 속성 추정 → 화장품 추천
 의료 진단이 아닌 화장품 추천 보조 도구임을 명시.
@@ -11,15 +11,13 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import datetime
 import torch
 import pandas as pd
 from PIL import Image
 from torchvision import transforms
 import streamlit as st
 
-st.set_page_config(page_title="피부 맞춤 화장품 추천", page_icon="🧴", layout="centered")
-from src.models.cnn import MultiTaskSkinModel, MultiTaskSkinModelCORAL
+from src.models.cnn import MultiTaskSkinModel
 from src.data.aihub_loader import MULTITASK_TARGETS, ANNOTATION_MAX
 from src.utils.face_crop import crop_faceparts, FACEPART_TARGETS
 from src.recommend.ingredient_map import (
@@ -30,11 +28,10 @@ from src.recommend.ingredient_map import (
 )
 from src.recommend.product_search import FunctionalProductSearch
 from src.recommend.explainer import build_skin_summary, explain_recommendation
-from src.recommend.food_recommend import FoodRecommender
 
 # ── 상수 ────────────────────────────────────────────────────────────
-CHECKPOINT = Path("checkpoints/multitask_v5_best.pth")
-_CHECKPOINT_FALLBACK = Path("checkpoints/multitask_v2_best.pth")
+CHECKPOINT = Path("checkpoints/multitask_v2_best.pth")
+_CHECKPOINT_FALLBACK = Path("checkpoints/multitask_best.pth")
 DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
 
 _NORMALIZE = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -50,13 +47,13 @@ _TTA_TRANSFORMS = [
     TRANSFORM,  # 원본
     transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.ColorJitter(brightness=(1.15, 1.15)),
+        transforms.ColorJitter(brightness=0.15),
         transforms.ToTensor(),
         _NORMALIZE,
     ]),
     transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.ColorJitter(brightness=(0.85, 0.85)),
+        transforms.ColorJitter(brightness=-0.15),
         transforms.ToTensor(),
         _NORMALIZE,
     ]),
@@ -93,15 +90,9 @@ _CONCERN_ATTR_HINT: dict[str, dict[str, float]] = {
 
 # ── 캐시 리소스 ──────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="모델 로딩 중...")
-def load_model():
+def load_model() -> MultiTaskSkinModel:
+    model = MultiTaskSkinModel(targets=MULTITASK_TARGETS)
     ckpt = CHECKPOINT if CHECKPOINT.exists() else _CHECKPOINT_FALLBACK
-    is_coral = "v5" in ckpt.name or "v4" in ckpt.name
-    
-    if is_coral:
-        model = MultiTaskSkinModelCORAL(backbone_name="efficientnet_b0", targets=MULTITASK_TARGETS)
-    else:
-        model = MultiTaskSkinModel(targets=MULTITASK_TARGETS)
-        
     if ckpt.exists():
         model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
     else:
@@ -119,32 +110,25 @@ def load_search_engine() -> FunctionalProductSearch:
 def run_inference(image: Image.Image) -> tuple[dict, bool]:
     """이미지 → 부위별 크롭 → TTA 앙상블 → 속성별 예측 클래스 dict + 얼굴 검출 여부."""
     model  = load_model()
-    is_coral = isinstance(model, MultiTaskSkinModelCORAL)
     crops, face_detected = crop_faceparts(image, return_detection=True)
     preds: dict[str, int] = {}
 
     for part, targets in FACEPART_TARGETS.items():
         crop_img = crops.get(part, image)
 
-        # TTA: 여러 변형 적용 후 softmax/sigmoid 확률 평균
+        # TTA: 여러 변형 적용 후 softmax 확률 평균
         prob_sum: dict[str, torch.Tensor] = {}
         with torch.no_grad():
             for tfm in _TTA_TRANSFORMS:
                 tensor  = tfm(crop_img).unsqueeze(0).to(DEVICE)
                 outputs = model(tensor)
                 for t in targets:
-                    if is_coral:
-                        prob = torch.sigmoid(outputs[t])
-                    else:
-                        prob = torch.softmax(outputs[t], dim=1)
+                    prob = torch.softmax(outputs[t], dim=1)
                     prob_sum[t] = prob_sum.get(t, torch.zeros_like(prob)) + prob
 
         for t in targets:
             avg_prob = prob_sum[t] / len(_TTA_TRANSFORMS)
-            if is_coral:
-                preds[t] = int((avg_prob > 0.5).sum(dim=1).item())
-            else:
-                preds[t] = int(torch.argmax(avg_prob, dim=1).item())
+            preds[t] = int(torch.argmax(avg_prob, dim=1).item())
 
     return preds, face_detected
 
@@ -152,11 +136,18 @@ def run_inference(image: Image.Image) -> tuple[dict, bool]:
 # ════════════════════════════════════════════════════════════════════
 # PAGE
 # ════════════════════════════════════════════════════════════════════
-st.title("한국인 피부 속성 기반 화장품 추천")
-st.caption("이 서비스는 화장품 추천 보조 도구입니다. 의료 진단이 아닙니다.")
-st.caption("AI Hub 한국인 피부 데이터 + 식약처 공공데이터 기반.")
+st.set_page_config(
+    page_title="피부 맞춤 화장품 추천",
+    layout="centered",
+)
 
-# --- 1. 이미지 업로드 ---
+st.title("한국인 피부 속성 기반 화장품 추천")
+st.caption(
+    "본 서비스는 화장품 추천 보조 도구입니다. 의료 진단이 아닙니다. "
+    "AI Hub 한국인 피부 데이터 + 식약처 공공데이터 기반."
+)
+
+# ── 1. 이미지 업로드 ──────────────────────────────────────────────────
 st.subheader("1. 셀카 업로드 (선택)")
 uploaded = st.file_uploader(
     "정면 얼굴 사진을 업로드하면 피부 속성을 자동 분석합니다.",
@@ -167,7 +158,7 @@ if uploaded:
     with col_img:
         st.image(uploaded, caption="업로드된 이미지", use_container_width=True)
 
-# --- 2. 폼 입력 ---
+# ── 2. 폼 입력 ────────────────────────────────────────────────────────
 st.subheader("2. 피부 정보 입력")
 
 col1, col2 = st.columns(2)
@@ -194,18 +185,13 @@ categories = st.multiselect(
     ["스킨토너", "에센스", "크림", "선크림", "세럼", "클렌저", "마스크", "아이크림"],
 )
 
-# --- 선택 입력 ---
-with st.expander("선택 입력 (더 정확한 추천을 위해)"):
+with st.expander("선택 입력 (더 정확한 추천)"):
     is_pregnant  = st.checkbox("임신/수유 중")
     _vegan       = st.checkbox("비건/크루얼티프리 선호")
     uv_exposure  = st.radio("자외선 노출 빈도", ["낮음", "보통", "높음"], index=1, horizontal=True)
-    food_allergies = st.multiselect("음식 알레르기", ["해산물", "견과류", "유제품", "달걀", "대두", "기타"])
 
-# --- 3. 분석 버튼 ---
+# ── 3. 분석 버튼 ──────────────────────────────────────────────────────
 if st.button("피부 분석 및 추천 받기", type="primary", use_container_width=True):
-
-    if not uploaded:
-        st.warning("이미지를 업로드하지 않으면 폼 기반으로만 속성을 추정합니다.")
 
     if len(concerns) > 3:
         st.error("피부 고민은 최대 3개까지 선택 가능합니다.")
@@ -317,7 +303,6 @@ if st.button("피부 분석 및 추천 받기", type="primary", use_container_wi
             "피부 고민 또는 선호 카테고리를 추가해 보세요."
         )
     else:
-        st.info("모델 구현 후 이 영역에 결과가 표시됩니다. (Phase 7 완성 예정)")
         for _, row in products.iterrows():
             with st.container(border=True):
                 st.markdown(f"**{row['제품명']}**")
@@ -332,47 +317,6 @@ if st.button("피부 분석 및 추천 받기", type="primary", use_container_wi
                         recommended, avoid, row["제품명"],
                     ) + "_"
                 )
-
-    # 오늘의 이너뷰티 꿀팁
-    st.divider()
-    
-    col_title, col_btn = st.columns([4, 1])
-    with col_title:
-        st.subheader("오늘의 이너뷰티 꿀팁 🥗")
-    with col_btn:
-        if st.button("🔄 다른 추천", use_container_width=True):
-            if "food_refresh" not in st.session_state:
-                st.session_state.food_refresh = 1
-            else:
-                st.session_state.food_refresh += 1
-                
-    if "food_refresh" not in st.session_state:
-        st.session_state.food_refresh = 0
-        
-    today_str = datetime.date.today().strftime("%Y%m%d")
-    current_seed = hash(f"{today_str}_{st.session_state.food_refresh}") % (2**32)
-    
-    with st.spinner("맞춤 식단 추천 중..."):
-        food_recommender = FoodRecommender()
-        foods = food_recommender.recommend(
-            attributes=attributes, 
-            sensitivity_class=sensitivity_class, 
-            concerns=concerns, 
-            is_vegan=_vegan, 
-            food_allergies=food_allergies,
-            seed=current_seed
-        )
-        
-        if foods:
-            cols = st.columns(len(foods))
-            for col, food in zip(cols, foods):
-                with col:
-                    with st.container(border=True):
-                        st.markdown(f"### {food['food_name']}")
-                        st.markdown(f"**{food['key_nutrients']}**")
-                        st.info(food['reason'])
-        else:
-            st.info("조건에 맞는 음식 데이터를 찾지 못했습니다.")
 
     # 데이터 출처 안내
     st.divider()

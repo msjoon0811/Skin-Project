@@ -84,12 +84,23 @@ def build_frontend_attrs(
 
 
 def composite_score(fe_attrs: list[dict]) -> int:
-    """7속성 → 종합 피부 점수 (0~100). 문제 속성 60% · 긍정 속성 40% 가중."""
+    """7속성 → 종합 피부 점수 (0~100).
+
+    raw 공식: g_avg×0.4 + (100-p_avg)×0.6
+    raw는 0~100이지만 기본 폼값만으로도 58이 나와
+    체감 점수와 괴리가 크다. 선형 보정으로 직관에 맞게 조정:
+      raw 0  → 표시 30  (최악)
+      raw 58 → 표시 70  (평균)
+      raw 80 → 표시 84  (좋은 피부)
+      raw 100→ 표시 98  (완벽)
+    """
     problem = {"oil", "sens", "pigment", "wrinkle", "pore"}
     good    = {"hydro", "tone"}
     p_avg = sum(a["value"] for a in fe_attrs if a["key"] in problem) / len(problem)
     g_avg = sum(a["value"] for a in fe_attrs if a["key"] in good) / len(good)
-    return max(0, min(100, round(g_avg * 0.4 + (100 - p_avg) * 0.6)))
+    raw = g_avg * 0.4 + (100 - p_avg) * 0.6
+    scaled = raw * 0.68 + 30
+    return max(0, min(100, round(scaled)))
 
 
 def skin_type_label(fe_attrs: list[dict], form: dict) -> str:
