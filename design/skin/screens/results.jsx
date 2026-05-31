@@ -360,29 +360,12 @@ const Results = ({ data, onRestart, onHome }) => {
                       </div>
                     )}
 
-                    {/* 주의 성분 */}
-                    {r.avoid && !r.avoid.startsWith('사용법') && (
-                      <div style={{
-                        marginTop:10, padding:'8px 12px', borderRadius:8,
-                        background:'var(--warn-soft)',
-                      }}>
-                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--warn)', letterSpacing:'0.06em', marginBottom:3}}>주의 성분</div>
-                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--warn)', lineHeight:1.65}}>{r.avoid}</div>
-                      </div>
-                    )}
-
-                    {/* 가격 + 구매 버튼 */}
+                    {/* 가격 */}
                     <div className="product-foot" style={{marginTop:'auto', paddingTop:14}}>
-                      {displayPrice && (
-                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>
-                          {displayPrice}
-                        </span>
-                      )}
-                      <a href={naverUrl} target="_blank" rel="noopener noreferrer"
-                        className="btn btn-primary btn-sm"
-                        style={{textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6}}>
-                        <Icon name="arrowRight" size={13}/> 구매하러 가기
-                      </a>
+                      {displayPrice
+                        ? <span style={{fontFamily:'var(--mono)', fontSize:16, fontWeight:700, color:'var(--ink)'}}>{displayPrice}</span>
+                        : <span style={{fontFamily:'var(--mono)', fontSize:13, color:'var(--ink-muted)'}}>가격 정보 없음</span>
+                      }
                     </div>
                   </div>
                 </div>
