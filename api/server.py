@@ -594,8 +594,33 @@ async def _naver_product_recommend(search_concerns: list[str], raw_concerns: lis
         queries = ["수분 히알루론산 세럼", "진정 약산성 토너", "보습 크림"]
 
     products: list[dict] = []
-    seen: set[str] = set()
+    seen_titles: set[str] = set()
+    seen_brands: set[str] = set()
     match_scores = [92, 87, 83]
+
+    # 제품 유형별 사용법
+    def _usage_for(title: str, query: str) -> str:
+        t = (title + query).lower()
+        if any(k in t for k in ["선크림", "spf", "자외선"]):
+            return "외출 30분 전 자외선 노출 부위에 충분히 도포하세요."
+        if any(k in t for k in ["앰플", "세럼"]):
+            return "토너 후 2~3방울 덜어 얼굴 전체에 가볍게 흡수시키세요."
+        if any(k in t for k in ["에센스"]):
+            return "토너 후 적당량을 손바닥에 덜어 얼굴에 부드럽게 펴 바르세요."
+        if any(k in t for k in ["크림", "로션", "에멀전"]):
+            return "스킨케어 마지막 단계에 적당량을 얼굴에 고르게 펴 바르세요."
+        if any(k in t for k in ["패드", "필링"]):
+            return "세안 후 패드 1장으로 결 방향으로 부드럽게 닦아내세요. 주 2~3회 사용을 권장합니다."
+        if any(k in t for k in ["토너", "스킨"]):
+            return "세안 후 화장솜 또는 손바닥으로 가볍게 패팅하며 흡수시키세요."
+        return "세안 후 스킨케어 단계에 맞게 적정량을 사용하세요."
+
+    # 핵심 성분 키워드 추출
+    def _key_ingredients(query: str) -> str:
+        # 쿼리에서 제품 유형 단어 제거 후 성분만 추출
+        type_words = ["앰플","세럼","에센스","크림","토너","패드","필링","로션","미스트","선크림","젤"]
+        parts = [w for w in query.split() if w not in type_words]
+        return " · ".join(parts) if parts else query
 
     async with httpx.AsyncClient(timeout=6.0) as hc:
         for query in queries:
@@ -609,35 +634,49 @@ async def _naver_product_recommend(search_concerns: list[str], raw_concerns: lis
                 )
                 if resp.status_code != 200:
                     continue
+                added_this_query = False  # 쿼리당 1개만 추가
                 for it in resp.json().get("items", []):
-                    if len(products) >= 3:
+                    if added_this_query or len(products) >= 3:
                         break
                     title = _re.sub(r'<[^>]+>', '', it.get("title", ""))
-                    # 공백·특수문자 제거 후 소문자로 정규화해 중복 판별
-                    dedup_key = _re.sub(r'[\s\W]+', '', title.lower())[:40]
-                    if dedup_key in seen:
+                    brand = it.get("brand", "") or title.split()[0]
+                    # 제목 + 브랜드 중복 제거
+                    title_key = _re.sub(r'[\s\W]+', '', title.lower())[:35]
+                    brand_key = _re.sub(r'[\s\W]+', '', brand.lower())[:15]
+                    if title_key in seen_titles:
                         continue
-                    seen.add(dedup_key)
+                    if brand_key and brand_key in seen_brands:
+                        continue
+                    seen_titles.add(title_key)
+                    if brand_key:
+                        seen_brands.add(brand_key)
                     lp = it.get("lprice", "")
                     price_str = f"₩{int(lp):,}" if lp and str(lp).isdigit() else ""
                     tag_keys = list(used)[:2] if used else raw_concerns[:2]
                     rank = len(products) + 1
+                    rank_labels = ["1순위 추천", "2순위 추천", "3순위 추천"]
+                    rank_descs = [
+                        "가장 시급한 피부 고민에 직접 작용하는 제품입니다.",
+                        "주요 고민 완화를 돕는 보조 케어 제품입니다.",
+                        "피부 전반의 밸런스를 잡아주는 보완 제품입니다.",
+                    ]
                     products.append({
-                        "brand":  it.get("brand", ""),
+                        "brand":  brand,
                         "name":   title,
                         "match":  match_scores[len(products)],
                         "tags":   tag_keys,
                         "reason": (
-                            f"[{rank}순위 추천] · "
-                            f"피부 고민 '{', '.join(tag_keys)}' 맞춤 선정 · "
-                            f"{query} · "
-                            f"사용법: 세안 후 스킨케어 단계에서 적정량 사용. 처음 사용 시 소량으로 피부 반응 확인 후 사용하세요."
+                            f"[{rank_labels[rank-1]}] · "
+                            f"{rank_descs[rank-1]} · "
+                            f"{_key_ingredients(query)} · "
+                            f"사용법: {_usage_for(title, query)}"
                         ),
                         "price":  price_str,
                         "image":  it.get("image", ""),
                         "link":   it.get("link", ""),
                         "shot":   it.get("image", ""),
                     })
+                    added_this_query = True
             except Exception:
                 logger.exception("네이버 제품 추천 쿼리 오류: %s", query)
 
