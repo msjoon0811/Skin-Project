@@ -228,17 +228,17 @@ _CONCERN_NORMALIZE = {
 }
 
 _CONCERN_HINT: dict[str, dict[str, float]] = {
-    "건조함":   {"dryness": 70},
-    "주름":     {"wrinkle": 70},
-    "색소침착": {"pigmentation": 70},
-    "모공":     {"pore": 70},
-    "탄력저하": {"sagging": 70},
-    "탄력":     {"sagging": 70},
-    "각질":     {"dryness": 60},
-    "유분과다": {"dryness": 10, "pore": 40},
-    "홍조":     {"dryness": 50},   # 민감·건조 연관
-    "트러블":   {"pore": 55},      # 피지·모공 연관
-    "여드름":   {"pore": 60},      # 피지·모공 연관
+    "건조함":   {"dryness": 72},
+    "주름":     {"wrinkle": 72},
+    "색소침착": {"pigmentation": 72},
+    "모공":     {"pore": 78},
+    "탄력저하": {"sagging": 72},
+    "탄력":     {"sagging": 72},
+    "각질":     {"dryness": 65},
+    "유분과다": {"dryness": 10, "pore": 65},
+    "홍조":     {"dryness": 55},
+    "트러블":   {"pore": 72, "pigmentation": 60},
+    "여드름":   {"pore": 80, "pigmentation": 65},  # 여드름 = pore+색소 강하게 반영
 }
 
 
@@ -402,11 +402,10 @@ async def analyze(
             logger.exception("CNN 추론 실패 (image=%s)", image.filename)
             face_detected = False
 
-    # 이미지 없거나 추론 실패 시 폼 고민으로 최소 힌트
-    if not cnn_attrs:
-        for concern in _parse_concerns(form.get("concerns", [])):
-            for attr, val in _CONCERN_HINT.get(concern, {}).items():
-                cnn_attrs[attr] = max(cnn_attrs.get(attr, 0.0), val)
+    # 폼 고민 → CNN 값 보정 (항상 적용, CNN이 과소평가할 때 덮어씀)
+    for concern in _parse_concerns(form.get("concerns", [])):
+        for attr, val in _CONCERN_HINT.get(concern, {}).items():
+            cnn_attrs[attr] = max(cnn_attrs.get(attr, 0.0), val)
 
     # ② 생활습관 델타
     lifestyle_deltas = compute_lifestyle_deltas(form)
@@ -414,6 +413,9 @@ async def analyze(
     # ③ 프론트엔드 7속성 + 종합 점수 + 피부 타입
     fe_attrs   = build_frontend_attrs(cnn_attrs, form, lifestyle_deltas)
     score      = composite_score(fe_attrs)
+    logger.info("CNN raw: %s", {k: round(v,1) for k,v in cnn_attrs.items()})
+    logger.info("fe_attrs: %s", {a['key']: a['value'] for a in fe_attrs})
+    logger.info("score: %d", score)
     skin_label = skin_type_label(fe_attrs, form)
 
     # ④ 민감도 클래스 (생활습관 보정 반영)
