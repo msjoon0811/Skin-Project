@@ -98,7 +98,6 @@ app.add_middleware(
 # ── ML 모델 (지연 로딩 + 캐시) ────────────────────────────────────────
 
 _model = None
-_search_engine = None
 
 async def _naver_search(query: str) -> dict:
     """네이버 쇼핑 API로 검색어 기반 상위 제품 조회."""
@@ -271,14 +270,6 @@ def _get_model():
         model.eval()
         _model = model
     return _model
-
-
-def _get_search():
-    global _search_engine
-    if _search_engine is None:
-        from src.recommend.product_search import FunctionalProductSearch
-        _search_engine = FunctionalProductSearch()
-    return _search_engine
 
 
 def _ml_available() -> bool:
@@ -578,9 +569,7 @@ async def analyze(
     )
     avoid_names = get_avoid_ingredients(allergy_list, is_pregnant)
 
-    # ⑥ 제품 검색 — 올리브영 베스트 + Claude 매칭
-    search_concerns = [_CONCERN_NORMALIZE.get(c, c) for c in raw_concerns]
-    uv_exposure     = form.get("uvExposure", form.get("uv_exposure", "보통"))
+    # ⑥ 제품 검색 — Claude 검색어 생성 + 네이버 API
     products: list[dict] = []
 
     try:
@@ -676,148 +665,6 @@ def history_delete(analysis_id: int, authorization: Optional[str] = Header(defau
     if not ok:
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
     return {"deleted": analysis_id}
-
-
-# 피부 고민 → 성분 기반 네이버 쇼핑 검색 쿼리 (제품 타입 고정 X, 성분명 우선)
-_CONCERN_SEARCH_QUERIES: dict[str, list[str]] = {
-    "여드름":   ["살리실산 BHA 여드름 앰플", "아젤라산 나이아신아마이드 세럼", "벤조일퍼옥사이드 여드름 크림"],
-    "모공":     ["나이아신아마이드 모공 앰플", "살리실산 BHA 필링 패드", "레티놀 모공 크림"],
-    "건성":     ["히알루론산 세라마이드 에센스", "판테놀 수분 크림", "스쿠알란 보습 앰플"],
-    "지성":     ["나이아신아마이드 피지 조절 앰플", "살리실산 각질 필링 패드", "레티놀 모공 세럼"],
-    "민감성":   ["병풀 마데카소사이드 진정 앰플", "판테놀 저자극 에센스", "세라마이드 장벽 크림"],
-    "색소침착": ["나이아신아마이드 알부틴 미백 앰플", "비타민C 아스코르빅 에센스", "알파알부틴 미백 크림"],
-    "주름":     ["레티놀 펩타이드 주름 앰플", "아데노신 리프팅 세럼", "아르지렐린 주름 크림"],
-    "탄력":     ["콜라겐 펩타이드 탄력 앰플", "아데노신 리프팅 에센스", "EGF 탄력 크림"],
-    "미백":     ["나이아신아마이드 미백 앰플", "비타민C 아스코르빅 세럼", "알부틴 미백 에센스"],
-    "각질":     ["글리콜산 AHA 필링 패드", "젖산 각질 앰플", "살리실산 BHA 필링"],
-    "수분":     ["히알루론산 수분 앰플", "세라마이드 보습 크림", "판테놀 수분 에센스"],
-    "자외선":   ["선크림 SPF50 PA++++", "징크옥사이드 선세럼", "무기자차 선크림"],
-}
-
-async def _naver_product_recommend(search_concerns: list[str], raw_concerns: list[str]) -> list[dict]:
-    """피부 고민 기반 네이버 쇼핑 추천 — 실제 구매 가능 제품 + 이미지/가격/링크 포함."""
-    client_id = os.getenv("NAVER_CLIENT_ID", "")
-    secret    = os.getenv("NAVER_CLIENT_SECRET", "")
-    if not client_id or not secret:
-        return []
-
-    import httpx
-    import re as _re
-
-    queries: list[str] = []
-    used: set[str] = set()
-    for concern in (search_concerns + raw_concerns):
-        for key, qs in _CONCERN_SEARCH_QUERIES.items():
-            if key in concern and key not in used:
-                queries.extend(qs)
-                used.add(key)
-    if not queries:
-        queries = ["수분 히알루론산 세럼", "진정 약산성 토너", "보습 크림"]
-
-    products: list[dict] = []
-    seen: set[str] = set()
-    match_scores = [92, 87, 83]
-
-    async with httpx.AsyncClient(timeout=6.0) as hc:
-        for query in queries:
-            if len(products) >= 3:
-                break
-            try:
-                resp = await hc.get(
-                    "https://openapi.naver.com/v1/search/shop.json",
-                    params={"query": query, "display": 5, "sort": "sim"},
-                    headers={"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": secret},
-                )
-                if resp.status_code != 200:
-                    continue
-                for it in resp.json().get("items", []):
-                    if len(products) >= 3:
-                        break
-                    title = _re.sub(r'<[^>]+>', '', it.get("title", ""))
-                    # 공백·특수문자 제거 후 소문자로 정규화해 중복 판별
-                    dedup_key = _re.sub(r'[\s\W]+', '', title.lower())[:40]
-                    if dedup_key in seen:
-                        continue
-                    seen.add(dedup_key)
-                    lp = it.get("lprice", "")
-                    price_str = f"₩{int(lp):,}" if lp and str(lp).isdigit() else ""
-                    tag_keys = list(used)[:2] if used else raw_concerns[:2]
-                    rank = len(products) + 1
-                    products.append({
-                        "brand":  it.get("brand", ""),
-                        "name":   title,
-                        "match":  match_scores[len(products)],
-                        "tags":   tag_keys,
-                        "reason": (
-                            f"[{rank}순위 추천] · "
-                            f"피부 고민 '{', '.join(tag_keys)}' 맞춤 선정 · "
-                            f"{query} · "
-                            f"사용법: 세안 후 스킨케어 단계에서 적정량 사용. 처음 사용 시 소량으로 피부 반응 확인 후 사용하세요."
-                        ),
-                        "price":  price_str,
-                        "image":  it.get("image", ""),
-                        "link":   it.get("link", ""),
-                        "shot":   it.get("image", ""),
-                    })
-            except Exception:
-                logger.exception("네이버 제품 추천 쿼리 오류: %s", query)
-
-    return products
-
-_CORP_RE = __import__('re').compile(r'\(주\)|\(주식회사\)|㈜|주식회사\s*')
-
-def _clean_brand(brand: str) -> str:
-    """식약처 법인명에서 (주) 등 법인 표기 제거 → 소비자 브랜드명."""
-    return _CORP_RE.sub('', brand).strip()
-
-async def _naver_shop(query: str, client_id: str, secret: str):
-    import httpx
-    async with httpx.AsyncClient(timeout=4.0) as hc:
-        resp = await hc.get(
-            "https://openapi.naver.com/v1/search/shop.json",
-            params={"query": query, "display": 1, "sort": "sim"},
-            headers={"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": secret},
-        )
-    if resp.status_code != 200:
-        return None
-    items = resp.json().get("items", [])
-    return items[0] if items else None
-
-@app.get("/api/product/search")
-async def product_search(q: str, brand: str = ""):
-    """네이버 쇼핑 API로 제품 이미지·가격 조회.
-    brand+name 검색 실패 시 name 단독으로 재시도."""
-    client_id = os.getenv("NAVER_CLIENT_ID", "")
-    secret    = os.getenv("NAVER_CLIENT_SECRET", "")
-    if not client_id or not secret:
-        return {"image": None, "price": None, "link": None}
-    try:
-        import re as _re
-
-        clean_brand = _clean_brand(brand) if brand else ""
-        # 1차: 정제된 브랜드명 + 제품명
-        item = await _naver_shop(
-            (clean_brand + " " + q).strip() if clean_brand else q,
-            client_id, secret,
-        )
-        # 2차: 제품명만으로 재시도 (1차 실패 or 브랜드 포함 쿼리였을 때)
-        if not item and clean_brand:
-            item = await _naver_shop(q, client_id, secret)
-
-        if not item:
-            return {"image": None, "price": None, "link": None}
-
-        lp = item.get("lprice", "")
-        price_str = f"₩{int(lp):,}" if lp and str(lp).isdigit() else None
-        return {
-            "image": item.get("image"),
-            "price": price_str,
-            "link":  item.get("link"),
-            "title": _re.sub(r'<[^>]+>', '', item.get("title", "")),
-        }
-    except Exception:
-        logger.exception("네이버 쇼핑 API 오류")
-        return {"image": None, "price": None, "link": None}
 
 
 @app.get("/api/ingredient/{name}")

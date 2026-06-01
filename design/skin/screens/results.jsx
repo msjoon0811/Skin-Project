@@ -17,8 +17,6 @@ const formatProductName = (name) => {
 // Results: 실제 API 데이터 표시 (없으면 mock 데이터 fallback)
 const Results = ({ data, onRestart, onHome }) => {
   const today = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'·').replace('.','');
-  const [productData, setProductData] = React.useState({});
-
   // API 데이터 or mock fallback — data가 존재하면 API 결과를 그대로 사용(빈 배열 포함)
   const attrs       = data ? (data.attributes || ATTRIBUTES)            : ATTRIBUTES;
   const composite   = (data && data.composite_score != null) ? data.composite_score : 62;
@@ -30,29 +28,6 @@ const Results = ({ data, onRestart, onHome }) => {
   const products    = data ? (data.products || [])                      : PRODUCTS;
   const mlAvailable = data ? data.ml_available : false;
 
-  // 제품 이미지·가격·링크 로딩
-  // data가 바뀔 때마다 productData 초기화 후 재조회
-  React.useEffect(() => {
-    setProductData({});
-    if (!products || products.length === 0) return;
-    products.forEach((p, i) => {
-      if (p.image || p.link) {
-        setProductData(prev => ({...prev, [i]: {
-          image: p.image || null,
-          price: p.price || null,
-          link:  p.link  || null,
-        }}));
-        return;
-      }
-      // 식약처 폴백 제품 — 네이버에서 별도 조회
-      const q = encodeURIComponent((p.name || '').trim());
-      const b = encodeURIComponent((p.brand || '').trim());
-      fetch('/api/product/search?q=' + q + '&brand=' + b)
-        .then(r => r.json())
-        .then(d => { if (d.image || d.price) setProductData(prev => ({...prev, [i]: d})); })
-        .catch(() => {});
-    });
-  }, [data]);
 
   const radarValues = attrs.map(a => a.value);
   const radarLabels = attrs.map(a => a.short);
@@ -260,12 +235,10 @@ const Results = ({ data, onRestart, onHome }) => {
         return (
           <div className="products-grid">
             {products.map((p, i) => {
-              const r = parseReason(p.reason);
               const rc = rankColors[i] || rankColors[2];
-              const pd = productData[i] || {};
-              const naverUrl = pd.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'') + ' ' + (p.name||''))}`;
+              const naverUrl = p.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'') + ' ' + (p.name||''))}`;
               const formattedName = formatProductName(p.name);
-              const displayPrice = p.price || pd.price || null;
+              const displayPrice = p.price || null;
               return (
                 <div key={i} className="product-card">
                   {/* 썸네일 */}
@@ -275,13 +248,13 @@ const Results = ({ data, onRestart, onHome }) => {
                     alignItems:'flex-end', padding:12,
                     justifyContent:'space-between', overflow:'hidden',
                   }}>
-                    {pd.image && (
-                      <img src={pd.image} alt={p.name}
+                    {p.image && (
+                      <img src={p.image} alt={p.name}
                         style={{position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover'}}
                         onError={e => { e.target.style.display='none'; }}
                       />
                     )}
-                    {!pd.image && <>
+                    {!p.image && <>
                       <div style={{
                         position:'absolute', right:-8, bottom:-20,
                         fontSize:90, fontFamily:'var(--serif)',
@@ -299,7 +272,7 @@ const Results = ({ data, onRestart, onHome }) => {
                     </>}
                     <div style={{
                       position:'absolute', inset:0,
-                      background: pd.image ? 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' : 'none',
+                      background: p.image ? 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' : 'none',
                     }}/>
                     <span style={{
                       background: rc.badge, color:'white',
@@ -310,7 +283,7 @@ const Results = ({ data, onRestart, onHome }) => {
                       {['1ST', '2ND', '3RD'][i] || `${i+1}TH`}
                     </span>
                     <span className="match" style={{zIndex:1, position:'relative',
-                      color: pd.image ? 'rgba(255,255,255,0.9)' : undefined}}>
+                      color: p.image ? 'rgba(255,255,255,0.9)' : undefined}}>
                       MATCH · {p.match}%
                     </span>
                   </div>
