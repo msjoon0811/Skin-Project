@@ -83,7 +83,7 @@ const Results = ({ data, onRestart, onHome }) => {
             AI가 7가지 피부 속성을 분석하고, 입력하신 알러지·라이프스타일 정보와 함께 종합한 결과입니다.
           </div>
           <div className="pill-row" style={{marginTop: 14}}>
-            <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>
+            <span className="pill">
               {mlAvailable ? '사진 분석 완료' : '설문 기반 분석'}
             </span>
             <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>성분 DB 매칭 완료</span>

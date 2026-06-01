@@ -35,6 +35,14 @@ from api.db import (
     create_session, delete_analysis, delete_session, delete_user,
     get_analysis_detail, get_history, get_session_user, init_db,
     login_user, register_user, save_analysis,
+    # 알림
+    add_notification, get_notifications, mark_notifications_read, delete_notification,
+    # 식단 일기
+    add_diary, get_diaries, delete_diary,
+    # 위시리스트
+    add_wishlist, get_wishlist, delete_wishlist,
+    # 프로필
+    update_user_info, get_user_by_id,
 )
 from src.recommend.lifestyle import compute_lifestyle_deltas, significant_lifestyle_flags
 from src.recommend.skin_profile import (
@@ -529,10 +537,28 @@ def history(authorization: Optional[str] = Header(default=None)):
         return {"items": []}
 
 
+@app.get("/api/history/last_form")
+def history_last_form(authorization: Optional[str] = Header(default=None)):
+    """마지막 분석 폼 데이터 반환 (폼 자동완성용)."""
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    items = get_history(limit=1, user_id=user["id"])
+    if not items:
+        return {}
+    detail = get_analysis_detail(items[0]["id"], user_id=user["id"])
+    if not detail:
+        return {}
+    return detail.get("form_data", detail.get("form", {}))
+
+
 @app.get("/api/history/{analysis_id}")
 def history_detail(analysis_id: int, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
-    data = get_analysis_detail(analysis_id, user_id=user["id"] if user else None)
+    # #19 Privacy fix: 비로그인 사용자의 타인 데이터 열람 차단
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    data = get_analysis_detail(analysis_id, user_id=user["id"])
     if not data:
         raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없습니다.")
     return data
@@ -899,6 +925,128 @@ async def diet_recommend(req: DietRequest, authorization: Optional[str] = Header
     except Exception as e:
         logger.warning("diet recommend 오류: %s", e)
         return _diet_fallback(req.mode)
+
+
+# ── 프로필 ─────────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    nickname: Optional[str] = None
+
+@app.patch("/api/me")
+def update_profile(body: ProfileUpdate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    update_user_info(user["id"], nickname=body.nickname)
+    return get_user_by_id(user["id"])
+
+
+# ── 알림 ────────────────────────────────────────────────────────────────
+
+class NotificationCreate(BaseModel):
+    id: str
+    type: str = "info"
+    title: str
+    message: str
+    created_at: Optional[str] = None
+
+@app.get("/api/me/notifications")
+def get_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    return {"items": get_notifications(user["id"])}
+
+@app.post("/api/me/notifications")
+def create_my_notification(payload: NotificationCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    add_notification(payload.id, user["id"], payload.type, payload.title, payload.message, payload.created_at)
+    return {"ok": True}
+
+@app.put("/api/me/notifications/read")
+def read_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    mark_notifications_read(user["id"])
+    return {"ok": True}
+
+@app.delete("/api/me/notifications/{notif_id}")
+def delete_my_notification(notif_id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    if not delete_notification(notif_id, user["id"]):
+        raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다.")
+    return {"deleted": notif_id}
+
+
+# ── 식단 일기 ───────────────────────────────────────────────────────────
+
+class DiaryCreate(BaseModel):
+    id: str
+    date: str
+    food: str
+    skin_effect: Optional[str] = None
+    notes: Optional[str] = None
+
+@app.get("/api/me/diary")
+def get_my_diary(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    return {"items": get_diaries(user["id"])}
+
+@app.post("/api/me/diary")
+def create_diary(payload: DiaryCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    add_diary(payload.id, user["id"], payload.date, payload.food, payload.skin_effect, payload.notes)
+    return {"ok": True}
+
+@app.delete("/api/me/diary/{diary_id}")
+def delete_diary_entry(diary_id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    if not delete_diary(diary_id, user["id"]):
+        raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
+    return {"deleted": diary_id}
+
+
+# ── 위시리스트 ──────────────────────────────────────────────────────────
+
+class WishlistAdd(BaseModel):
+    item_type: str = "product"
+    title: str
+    subtitle: Optional[str] = None
+
+@app.get("/api/me/wishlist")
+def get_my_wishlist(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    return {"items": get_wishlist(user["id"])}
+
+@app.post("/api/me/wishlist")
+def add_my_wishlist(payload: WishlistAdd, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    item_id = add_wishlist(user["id"], payload.item_type, payload.title, payload.subtitle)
+    return {"id": item_id}
+
+@app.delete("/api/me/wishlist/{item_id}")
+def remove_my_wishlist(item_id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    if not delete_wishlist(item_id, user["id"]):
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    return {"deleted": item_id}
 
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "design"

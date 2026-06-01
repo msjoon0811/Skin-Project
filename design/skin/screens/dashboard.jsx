@@ -357,18 +357,21 @@ const MOCK_HISTORY = [
 ];
 
 // Dashboard — 실제 분석 데이터 반영
-const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList }) => {
+const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, historyList, onDeleteHistory, user }) => {
   const hasData = !!(analysisData && analysisData.composite_score != null);
+  const displayName = user ? (user.nickname || user.username || '') : '';
   const [localHistory, setLocalHistory] = React.useState(null);
 
-  // historyList prop이 채워지면(로그인 후, 첫 로드) 로컬 상태로 동기화
+  // historyList prop 변경 시 로컬 상태 동기화
+  // 삭제 후 App 상태가 업데이트되면 이 effect가 재실행되어 올바른 목록으로 초기화
   React.useEffect(() => {
-    if (historyList && historyList.length > 0) {
-      setLocalHistory(historyList);
+    if (historyList) {
+      setLocalHistory(historyList.length > 0 ? historyList : []);
     }
-  }, [historyList ? historyList.length : 0]);
+  }, [historyList]);
 
   const handleDeleteHistory = (item) => {
+    // 1. Dashboard 로컬 상태 즉시 반영 (UI 즉각 응답)
     setLocalHistory(prev => {
       const base = prev !== null ? prev : (historyList && historyList.length > 0 ? historyList : MOCK_HISTORY);
       const itemId = item.id || item.analysisId;
@@ -377,6 +380,8 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
         return !(h.date === item.date && h.score === item.score);
       });
     });
+    // 2. App 상위 상태도 업데이트 → 페이지 이동 후 돌아와도 유지
+    onDeleteHistory && onDeleteHistory(item);
   };
 
   const lastScore    = hasData ? analysisData.composite_score : null;
@@ -433,7 +438,10 @@ const Dashboard = ({ onStart, onViewReport, onViewHistoryItem, analysisData, his
             <h1 className="heading">
               {hasData
                 ? <>분석이 완료됐어요.<br/>결과를 확인해볼까요?</>
-                : <>안녕하세요.<br/>오늘의 <em>피부 분석</em>을 시작해볼까요?</>
+                : <>
+                    안녕하세요{displayName ? <>, <em>{displayName}</em>님</> : ''}.<br/>
+                    오늘의 <em>피부 분석</em>을 시작해볼까요?
+                  </>
               }
             </h1>
           </div>

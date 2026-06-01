@@ -52,11 +52,50 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         """)
+        # 알림 테이블
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_notifications (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                type       TEXT    NOT NULL DEFAULT 'info',
+                title      TEXT    NOT NULL,
+                message    TEXT    NOT NULL,
+                is_read    INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # 식단 일기 테이블
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_diaries (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                date       TEXT    NOT NULL,
+                food       TEXT    NOT NULL,
+                skin_effect TEXT,
+                notes      TEXT,
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # 위시리스트 테이블
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_wishlist (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                item_type  TEXT    NOT NULL DEFAULT 'product',
+                title      TEXT    NOT NULL,
+                subtitle   TEXT,
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
         # 기존 DB 마이그레이션
         for col_sql in [
             "ALTER TABLE analyses ADD COLUMN user_id INTEGER",
             "ALTER TABLE analyses ADD COLUMN full_data TEXT",
             "ALTER TABLE users RENAME COLUMN email TO username",
+            "ALTER TABLE users ADD COLUMN nickname TEXT",
         ]:
             try:
                 con.execute(col_sql)
@@ -181,6 +220,109 @@ def delete_analysis(analysis_id: int, user_id: int | None = None) -> bool:
         else:
             cur = con.execute("DELETE FROM analyses WHERE id=?", (analysis_id,))
         return cur.rowcount > 0
+
+
+# ── 프로필 ────────────────────────────────────────────────────────────
+
+def update_user_info(user_id: int, nickname: str | None = None) -> None:
+    with _conn() as con:
+        if nickname is not None:
+            con.execute("UPDATE users SET nickname=? WHERE id=?", (nickname, user_id))
+
+def get_user_by_id(user_id: int) -> dict | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id, username, nickname FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── 알림 ──────────────────────────────────────────────────────────────
+
+def add_notification(id: str, user_id: int, type: str, title: str, message: str, created_at: str = None) -> None:
+    now = created_at or datetime.now().isoformat()
+    with _conn() as con:
+        try:
+            con.execute(
+                "INSERT INTO user_notifications (id, user_id, type, title, message, created_at) VALUES (?,?,?,?,?,?)",
+                (id, user_id, type, title, message, now),
+            )
+        except Exception:
+            pass  # 중복 ID 무시
+
+def get_notifications(user_id: int) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM user_notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def mark_notifications_read(user_id: int) -> None:
+    with _conn() as con:
+        con.execute("UPDATE user_notifications SET is_read=1 WHERE user_id=?", (user_id,))
+
+def delete_notification(id: str, user_id: int) -> bool:
+    with _conn() as con:
+        cur = con.execute(
+            "DELETE FROM user_notifications WHERE id=? AND user_id=?", (id, user_id)
+        )
+    return cur.rowcount > 0
+
+
+# ── 식단 일기 ──────────────────────────────────────────────────────────
+
+def add_diary(id: str, user_id: int, date: str, food: str, skin_effect: str | None, notes: str | None) -> None:
+    now = datetime.now().isoformat()
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO user_diaries (id, user_id, date, food, skin_effect, notes, created_at) VALUES (?,?,?,?,?,?,?)",
+            (id, user_id, date, food, skin_effect, notes, now),
+        )
+
+def get_diaries(user_id: int) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM user_diaries WHERE user_id=? ORDER BY date DESC, created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def delete_diary(id: str, user_id: int) -> bool:
+    with _conn() as con:
+        cur = con.execute(
+            "DELETE FROM user_diaries WHERE id=? AND user_id=?", (id, user_id)
+        )
+    return cur.rowcount > 0
+
+
+# ── 위시리스트 ────────────────────────────────────────────────────────
+
+def add_wishlist(user_id: int, item_type: str, title: str, subtitle: str | None = None) -> str:
+    import secrets as _sec
+    id = _sec.token_hex(8)
+    now = datetime.now().isoformat()
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO user_wishlist (id, user_id, item_type, title, subtitle, created_at) VALUES (?,?,?,?,?,?)",
+            (id, user_id, item_type, title, subtitle, now),
+        )
+    return id
+
+def get_wishlist(user_id: int) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM user_wishlist WHERE user_id=? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def delete_wishlist(item_id: str, user_id: int) -> bool:
+    with _conn() as con:
+        cur = con.execute(
+            "DELETE FROM user_wishlist WHERE id=? AND user_id=?", (item_id, user_id)
+        )
+    return cur.rowcount > 0
 
 
 def get_history(limit: int = 20, user_id: int | None = None) -> list[dict]:
