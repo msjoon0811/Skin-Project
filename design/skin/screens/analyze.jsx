@@ -6,6 +6,79 @@ const Analyze = ({ onComplete, onBack, authHeaders = {} }) => {
   const [photoError, setPhotoError] = React.useState(false);
   const fileInputRef = React.useRef(null);
 
+  // ── 웹캠 상태 ──────────────────────────────────────────────────────
+  const videoRef  = React.useRef(null);
+  const canvasRef = React.useRef(null);
+  const [captureMode, setCaptureMode]       = React.useState('file'); // 'file' | 'camera'
+  const [camStream, setCamStream]           = React.useState(null);
+  const [camDevices, setCamDevices]         = React.useState([]);
+  const [selectedDevice, setSelectedDevice] = React.useState('');
+  const [camError, setCamError]             = React.useState('');
+  const [camReady, setCamReady]             = React.useState(false);
+
+  // stream 생성 시 video 엘리먼트에 연결
+  React.useEffect(() => {
+    if (camStream && videoRef.current) {
+      videoRef.current.srcObject = camStream;
+      videoRef.current.onloadedmetadata = () => setCamReady(true);
+    }
+  }, [camStream]);
+
+  // 컴포넌트 언마운트 시 스트림 정리
+  React.useEffect(() => {
+    return () => { if (camStream) camStream.getTracks().forEach(t => t.stop()); };
+  }, [camStream]);
+
+  const startCamera = async (deviceId) => {
+    setCamError(''); setCamReady(false);
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    try {
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' } };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      setCamStream(s);
+      // 권한 허용 후 기기 목록 재조회
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const vids  = devs.filter(d => d.kind === 'videoinput');
+      setCamDevices(vids);
+      if (!deviceId && vids.length > 0) setSelectedDevice(vids[0].deviceId);
+    } catch (e) {
+      setCamError(
+        e.name === 'NotAllowedError' ? '카메라 접근이 거부됐습니다. 브라우저 주소창의 잠금 아이콘에서 카메라를 허용해주세요.' :
+        e.name === 'NotFoundError'   ? '카메라 장치를 찾을 수 없습니다.' :
+        '카메라 오류: ' + e.message
+      );
+    }
+  };
+
+  const stopCamera = () => {
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    setCamStream(null); setCamReady(false);
+  };
+
+  const switchCaptureMode = (mode) => {
+    if (mode === 'camera') startCamera(selectedDevice || '');
+    else { stopCamera(); setCamError(''); }
+    setCaptureMode(mode);
+  };
+
+  const captureFromCamera = () => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !camReady) return;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], 'webcam-capture.jpg', { type: 'image/jpeg' });
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(blob));
+      setPhotoError(false);
+      stopCamera();
+      setCaptureMode('file');
+    }, 'image/jpeg', 0.92);
+  };
+
   const [form, setForm] = React.useState({
     // 필수
     skinType: '', age: '', gender: '', concerns: [], sensitivity: '',
@@ -187,79 +260,187 @@ const Analyze = ({ onComplete, onBack, authHeaders = {} }) => {
                 </div>
               </div>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png"
-                style={{display:'none'}}
-                onChange={handleFileChange}
-              />
+              {/* 숨긴 요소 */}
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png"
+                style={{display:'none'}} onChange={handleFileChange} />
+              <canvas ref={canvasRef} style={{display:'none'}} />
+
+              {/* 모드 토글 — 파일 선택 / 카메라 촬영 */}
+              <div style={{display:'flex', gap:6, marginBottom:20}}>
+                {[['file', 'upload', '파일에서 선택'], ['camera', 'camera', '카메라로 촬영']].map(([mode, icon, label]) => (
+                  <button key={mode} onClick={() => switchCaptureMode(mode)} style={{
+                    display:'flex', alignItems:'center', gap:7,
+                    padding:'9px 18px', borderRadius:999, fontSize:13, fontWeight:500,
+                    border:'1.5px solid ' + (captureMode===mode ? 'var(--accent)' : 'var(--line)'),
+                    background: captureMode===mode ? 'var(--accent-soft)' : 'var(--surface)',
+                    color:      captureMode===mode ? 'var(--accent-ink)' : 'var(--ink-muted)',
+                    cursor:'pointer', fontFamily:'var(--sans)', transition:'all 0.15s',
+                    boxShadow: captureMode===mode ? '0 0 0 1.5px var(--accent)' : 'var(--shadow-sm)',
+                  }}>
+                    <Icon name={icon} size={14}/> {label}
+                  </button>
+                ))}
+              </div>
 
               <div className="capture-stage">
-                <div className="cam-frame" style={{cursor:'pointer'}} onClick={() => fileInputRef.current && fileInputRef.current.click()}>
-                  {imagePreview ? (
-                    <img src={imagePreview} alt="업로드된 이미지"
-                      style={{width:'100%', height:'100%', objectFit:'cover', position:'absolute', inset:0}} />
-                  ) : (
+                {/* 좌측: 이미지 영역 */}
+                <div className="cam-frame"
+                  style={{cursor: captureMode==='file' ? 'pointer' : 'default'}}
+                  onClick={() => { if (captureMode === 'file') fileInputRef.current && fileInputRef.current.click(); }}>
+
+                  {/* 파일 모드 */}
+                  {captureMode === 'file' && (
+                    imagePreview ? (
+                      <img src={imagePreview} alt="업로드된 이미지"
+                        style={{width:'100%', height:'100%', objectFit:'cover', position:'absolute', inset:0}} />
+                    ) : (
+                      <>
+                        <div className="cam-overlay-tag">클릭해서 파일 선택</div>
+                        <div className="face-guide" />
+                        <div className="scan-line" />
+                      </>
+                    )
+                  )}
+
+                  {/* 카메라 모드 */}
+                  {captureMode === 'camera' && (
                     <>
-                      <div className="cam-overlay-tag">사진을 클릭해 업로드</div>
-                      <div className="face-guide" />
-                      <div className="scan-line" />
+                      <video ref={videoRef} autoPlay playsInline muted style={{
+                        width:'100%', height:'100%', objectFit:'cover',
+                        position:'absolute', inset:0,
+                        display: camStream ? 'block' : 'none',
+                      }} />
+                      {/* 얼굴 가이드 오버레이 */}
+                      {camStream && !camError && (
+                        <div className="face-guide" style={{
+                          position:'absolute', zIndex:2,
+                          borderColor:'rgba(255,255,255,0.8)',
+                        }} />
+                      )}
+                      {/* 스트림 없을 때 */}
+                      {!camStream && !camError && (
+                        <div style={{color:'rgba(255,255,255,0.85)', fontSize:13, zIndex:1, textAlign:'center', padding:20}}>
+                          <div className="spinner" style={{margin:'0 auto 12px'}} />
+                          카메라 시작 중...
+                        </div>
+                      )}
+                      {camError && (
+                        <div style={{color:'rgba(255,200,180,0.95)', fontSize:12.5, zIndex:1,
+                          textAlign:'center', padding:24, lineHeight:1.6}}>
+                          {camError}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
 
+                {/* 우측: 컨트롤 영역 */}
                 <div className="col-gap-lg">
-                  <div>
-                    <div className="eyebrow">촬영 가이드</div>
-                    <h3 className="h2" style={{margin: '4px 0 12px'}}>이렇게 찍어주세요</h3>
-                  </div>
-                  <div className="capture-tips">
-                    {[
-                      {n:1, t:'자연광 · 정면', d:'창가에서 그림자 없는 조명, 정면 응시'},
-                      {n:2, t:'맨얼굴 · 세안 직후', d:'메이크업·선크림을 모두 지운 상태'},
-                      {n:3, t:'머리·안경 제거', d:'이마와 턱선이 잘 보이도록'},
-                    ].map(tip => (
-                      <div key={tip.n} className="tip">
-                        <div className="icn">{tip.n}</div>
-                        <div>
-                          <div className="tip-title">{tip.t}</div>
-                          <div className="tip-desc">{tip.d}</div>
+
+                  {/* ── 카메라 모드 컨트롤 ── */}
+                  {captureMode === 'camera' ? (
+                    <>
+                      <div>
+                        <div className="eyebrow">카메라 촬영</div>
+                        <h3 className="h2" style={{margin:'4px 0 8px'}}>얼굴을 가이드에 맞추세요</h3>
+                        <div className="muted" style={{fontSize:12.5}}>
+                          자연광 아래, 맨얼굴로 정면을 응시해 주세요.
                         </div>
                       </div>
-                    ))}
-                  </div>
 
-                  <button
-                    className="btn btn-outline"
-                    style={{justifyContent:'flex-start', padding: 14, borderStyle: 'dashed'}}
-                    onClick={() => fileInputRef.current && fileInputRef.current.click()}>
-                    <Icon name="upload" size={15} /> 파일에서 선택하기
-                    <span className="muted" style={{marginLeft:'auto', fontSize: 11.5}}>JPG · PNG · ≤10MB</span>
-                  </button>
+                      {/* 카메라 기기 선택 (2개 이상일 때) */}
+                      {camDevices.length > 1 && (
+                        <div className="field">
+                          <label className="field-label">카메라 선택</label>
+                          <select className="input" value={selectedDevice}
+                            onChange={e => { setSelectedDevice(e.target.value); startCamera(e.target.value); }}>
+                            {camDevices.map((d, i) => (
+                              <option key={d.deviceId} value={d.deviceId}>
+                                {d.label || `카메라 ${i + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* 찍기 버튼 */}
+                      <button className="btn btn-primary"
+                        onClick={captureFromCamera}
+                        disabled={!camReady}
+                        style={{fontSize:15, padding:'14px 24px', gap:10}}>
+                        <Icon name="camera" size={16}/> 사진 찍기
+                      </button>
+
+                      {camError && (
+                        <button className="btn btn-outline" onClick={() => startCamera(selectedDevice || '')}>
+                          다시 시도
+                        </button>
+                      )}
+
+                      <div style={{
+                        padding:'10px 14px', background:'var(--surface-2)',
+                        border:'1px solid var(--line-2)', borderRadius:10,
+                        fontSize:11.5, color:'var(--ink-muted)', lineHeight:1.6,
+                      }}>
+                        촬영된 사진은 분석 직후 자동 삭제됩니다.
+                      </div>
+                    </>
+                  ) : (
+                    /* ── 파일 모드 컨트롤 ── */
+                    <>
+                      <div>
+                        <div className="eyebrow">촬영 가이드</div>
+                        <h3 className="h2" style={{margin: '4px 0 12px'}}>이렇게 찍어주세요</h3>
+                      </div>
+                      <div className="capture-tips">
+                        {[
+                          {n:1, t:'자연광 · 정면', d:'창가에서 그림자 없는 조명, 정면 응시'},
+                          {n:2, t:'맨얼굴 · 세안 직후', d:'메이크업·선크림을 모두 지운 상태'},
+                          {n:3, t:'머리·안경 제거', d:'이마와 턱선이 잘 보이도록'},
+                        ].map(tip => (
+                          <div key={tip.n} className="tip">
+                            <div className="icn">{tip.n}</div>
+                            <div>
+                              <div className="tip-title">{tip.t}</div>
+                              <div className="tip-desc">{tip.d}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button className="btn btn-outline"
+                        style={{justifyContent:'flex-start', padding:14, borderStyle:'dashed'}}
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                        <Icon name="upload" size={15}/> 파일에서 선택하기
+                        <span className="muted" style={{marginLeft:'auto', fontSize:11.5}}>JPG · PNG</span>
+                      </button>
+                    </>
+                  )}
 
                   {photoError && (
                     <div style={{
-                      padding: '10px 14px',
-                      background: 'var(--warn-soft)', border: '1px solid var(--warn)',
-                      borderRadius: 10, color: 'var(--warn)', fontSize: 13,
+                      padding:'10px 14px',
+                      background:'var(--warn-soft)', border:'1px solid var(--warn)',
+                      borderRadius:10, color:'var(--warn)', fontSize:13,
                     }}>
-                      사진을 먼저 업로드해야 분석을 시작할 수 있습니다.
+                      사진을 먼저 업로드하거나 찍어야 분석을 시작할 수 있습니다.
                     </div>
                   )}
                 </div>
               </div>
 
               <div className="panel-foot">
-                <button className="btn btn-ghost" onClick={onBack}>
-                  <Icon name="arrowLeft" size={14} /> 취소
+                <button className="btn btn-ghost" onClick={() => { stopCamera(); onBack(); }}>
+                  <Icon name="arrowLeft" size={14}/> 취소
                 </button>
-                <div style={{display:'flex', gap: 8, alignItems:'center'}}>
+                <div style={{display:'flex', gap:8, alignItems:'center'}}>
                   {imageFile && (
-                    <span className="muted mono" style={{fontSize: 11.5}}>✓ {imageFile.name}</span>
+                    <span className="muted mono" style={{fontSize:11.5}}>
+                      ✓ {captureMode === 'camera' ? '촬영 완료' : imageFile.name}
+                    </span>
                   )}
                   <button className="btn btn-primary" onClick={goToForm}>
-                    다음: 정보 입력 <Icon name="arrowRight" size={14} />
+                    다음: 정보 입력 <Icon name="arrowRight" size={14}/>
                   </button>
                 </div>
               </div>
