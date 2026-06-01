@@ -32,8 +32,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.db import (
-    create_session, delete_history, delete_session, delete_user, get_analysis_detail, get_history,
-    get_session_user, init_db, login_user, register_user, save_analysis,
+    create_session, delete_analysis, delete_session, delete_user,
+    get_analysis_detail, get_history, get_session_user, init_db,
+    login_user, register_user, save_analysis,
+    # 알림
+    add_notification, get_notifications, mark_notifications_read, delete_notification,
+    # 식단 일기
+    add_diary, get_diaries, delete_diary,
+    # 위시리스트
+    add_wishlist, get_wishlist, delete_wishlist,
+    # 프로필
+    update_user_info, get_user_by_id,
 )
 from src.recommend.lifestyle import compute_lifestyle_deltas, significant_lifestyle_flags
 from src.recommend.skin_profile import (
@@ -51,14 +60,13 @@ from src.recommend.ingredient_map import (
     get_recommended_ingredients,
 )
 from src.recommend.explainer import build_skin_summary, explain_recommendation
-from src.recommend.procedure_map import get_recommended_procedures
-from src.recommend.food_recommend import FoodRecommender
+
 logger = logging.getLogger("skin.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 class AuthBody(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -84,13 +92,138 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8000", "http://localhost:3000"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type"],
 )
 
 # ── ML 모델 (지연 로딩 + 캐시) ────────────────────────────────────────
 
 _model = None
+_acne_model = None
 _search_engine = None
+
+
+async def _naver_search(query: str) -> dict:
+    """네이버 쇼핑 API로 검색어 기반 상위 제품 조회."""
+    import httpx, re as _re
+    client_id = os.getenv("NAVER_CLIENT_ID", "")
+    secret    = os.getenv("NAVER_CLIENT_SECRET", "")
+    if not client_id or not secret:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as hc:
+            resp = await hc.get(
+                "https://openapi.naver.com/v1/search/shop.json",
+                params={"query": query, "display": 3, "sort": "sim"},
+                headers={"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": secret},
+            )
+            if resp.status_code != 200:
+                return {}
+            items = resp.json().get("items", [])
+            if not items:
+                return {}
+            item = items[0]
+            title = _re.sub(r"<[^>]+>", "", item.get("title", ""))
+            brand = item.get("brand", "") or item.get("maker", "")
+            return {
+                "name":  title,
+                "brand": brand,
+                "image": item.get("image", ""),
+                "price": f"{int(item.get('lprice', 0)):,}원" if item.get("lprice") else "",
+                "link":  item.get("link", ""),
+            }
+    except Exception:
+        return {}
+
+
+async def _oliveyoung_recommend(
+    fe_attrs: list[dict],
+    concerns: list[str],
+    skin_label: str,
+    rec_names: list[str],
+) -> list[dict]:
+    """Claude가 네이버 검색어 3개 생성 → 네이버 API로 실제 제품 조회."""
+    client = _claude_client()
+    if not client:
+        return []
+
+    attr_text = ", ".join(
+        f"{a['name']} {a['value']}({'높음' if a['level']=='hi' else '낮음' if a['level']=='lo' else '보통'})"
+        for a in fe_attrs
+    )
+    concerns_text = ", ".join(concerns) if concerns else "없음"
+    rec_text = ", ".join(rec_names[:4]) if rec_names else "없음"
+
+    prompt = f"""피부 분석 결과를 바탕으로 네이버 쇼핑 검색어 3개를 만들어주세요.
+각 검색어는 서로 다른 제품 타입(토너/세럼/크림 등)이어야 합니다.
+
+피부 분석:
+- 피부 타입: {skin_label}
+- 속성 점수: {attr_text}
+- 피부 고민: {concerns_text}
+- 권장 성분: {rec_text}
+
+검색어 조건:
+- "[핵심 성분] [제품 타입]" 형태로 작성 (예: "히알루론산 토너", "레티놀 세럼", "세라마이드 크림")
+- 피부 고민에 가장 효과적인 성분 + 적합한 제품 타입 조합
+- 3개가 서로 다른 스텝(토너→세럼→크림 등 루틴)을 커버하도록
+
+반드시 JSON 배열로만 응답하세요:
+[
+  {{
+    "query": "네이버 검색어",
+    "key_ingredient": "핵심 성분",
+    "product_type": "제품 타입",
+    "description": "이 성분/제품 타입이 이 피부에 좋은 이유 1~2문장",
+    "how_to_use": "이 타입 제품의 일반적인 사용법 1문장",
+    "reason": "이 피부에 맞는 이유 1문장"
+  }},
+  {{"query":"...","key_ingredient":"...","product_type":"...","description":"...","how_to_use":"...","reason":"..."}},
+  {{"query":"...","key_ingredient":"...","product_type":"...","description":"...","how_to_use":"...","reason":"..."}}
+]"""
+
+    try:
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+
+        import re as _re, json as _json, asyncio as _asyncio
+        from urllib.parse import quote as _quote
+
+        text = _re.sub(r"```(?:json)?", "", text).strip()
+        m = _re.search(r"\[[\s\S]+\]", text)
+        if not m:
+            return []
+
+        plans = _json.loads(m.group())
+
+        queries = [p.get("query", "") for p in plans[:3]]
+        naver_results = await _asyncio.gather(*[_naver_search(q) for q in queries])
+
+        result = []
+        for i, (plan, naver) in enumerate(zip(plans[:3], naver_results)):
+            query = plan.get("query", "")
+            result.append({
+                "brand":          naver.get("brand", ""),
+                "name":           naver.get("name", query),
+                "price":          naver.get("price", ""),
+                "image":          naver.get("image", ""),
+                "link":           naver.get("link") or f"https://search.shopping.naver.com/search/all?query={_quote(query)}",
+                "match":          93 - i * 4,
+                "tags":           concerns[:2] if concerns else [skin_label],
+                "reason":         plan.get("reason", ""),
+                "key_ingredient": plan.get("key_ingredient", ""),
+                "description":    plan.get("description", ""),
+                "how_to_use":     plan.get("how_to_use", ""),
+                "shot":           "",
+            })
+        return result
+
+    except Exception:
+        logger.exception("제품 추천 실패")
+        return []
 
 
 def _get_model():
@@ -102,6 +235,7 @@ def _get_model():
 
         # CORAL 체크포인트 우선 (v5=B0+CORAL, v4=B3+CORAL)
         _CORAL_CKPTS = [
+            Path("multitask_v5_best.pth"),             # 프로젝트 루트
             Path("checkpoints/multitask_v5_best.pth"),
             Path("checkpoints/multitask_v4_best.pth"),
         ]
@@ -138,12 +272,32 @@ def _get_model():
     return _model
 
 
+def _get_acne_model():
+    global _acne_model
+    if _acne_model is None:
+        import torch
+        _ACNE_CKPTS = [
+            Path("checkpoints/acne_best.pth"),
+            Path("acne_best.pth"),
+        ]
+        ckpt = next((p for p in _ACNE_CKPTS if p.exists()), None)
+        if ckpt:
+            from src.models.cnn import AcneSeverityModel
+            model = AcneSeverityModel()
+            model.load_state_dict(torch.load(ckpt, map_location="cpu"))
+            model.eval()
+            _acne_model = model
+            logger.info("Acne 체크포인트 로드: %s", ckpt)
+    return _acne_model
+
+
 def _get_search():
     global _search_engine
     if _search_engine is None:
         from src.recommend.product_search import FunctionalProductSearch
         _search_engine = FunctionalProductSearch()
     return _search_engine
+
 
 
 def _ml_available() -> bool:
@@ -160,8 +314,8 @@ def _tta_transforms():
     norm = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return [
         transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(1.15, 1.15)), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(0.85, 0.85)), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=0.15), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(0.7, 0.9)), transforms.ToTensor(), norm]),
     ]
 
 
@@ -196,12 +350,27 @@ def _run_inference(img_bytes: bytes) -> tuple[dict, bool]:
         for t in targets:
             avg = prob_sum[t] / len(tta)
             if is_coral:
-                # CORAL 예측: sigmoid > 0.5 인 개수 = 등급
-                raw[t] = int((avg > 0.5).sum(dim=1).item())
+                raw[t] = float((avg[0] > 0.5).sum().item())
             else:
                 raw[t] = int(torch.argmax(avg, dim=1).item())
 
-    return normalize_cnn_output(raw), face_detected
+    normalized = normalize_cnn_output(raw)
+
+    # acne 추론 (전체 이미지, TTA 3종 + 신뢰도 스케일링)
+    acne_model = _get_acne_model()
+    if acne_model is not None:
+        import torch
+        logit_sum = torch.zeros(1, 4)
+        with torch.no_grad():
+            for tfm in tta:
+                logit_sum += torch.softmax(acne_model(tfm(img).unsqueeze(0)), dim=1)
+        probs = logit_sum / len(tta)
+        grade      = float(probs.argmax(1).item())
+        confidence = float(probs.max().item())
+        # confidence < 0.67이면 감쇄: 0.25(완전불확실)→37.5%, 0.5→75%, 0.67+→100%
+        normalized["acne"] = grade / 3 * 100 * min(1.0, confidence * 1.5)
+
+    return normalized, face_detected
 
 
 # ── 폼 유효성 검사 헬퍼 ───────────────────────────────────────────────
@@ -232,8 +401,12 @@ _CONCERN_HINT: dict[str, dict[str, float]] = {
     "색소침착": {"pigmentation": 70},
     "모공":     {"pore": 70},
     "탄력저하": {"sagging": 70},
+    "탄력":     {"sagging": 70},
     "각질":     {"dryness": 60},
-    "유분과다": {"dryness": 10},
+    "유분과다": {"dryness": 10, "pore": 40},
+    "홍조":     {"dryness": 50},
+    "트러블":   {"acne": 55, "pore": 45},
+    "여드름":   {"acne": 70, "pore": 50},
 }
 
 
@@ -336,57 +509,25 @@ async def _ingredient_info(name: str) -> dict:
         return {"description": "정보를 불러올 수 없습니다.", "benefits": [], "concerns": [], "suitable_for": "-", "found_in": "-"}
 
 
-# ── 제품 카테고리별 사용법 매핑 ─────────────────────────────────────
-
-_PRODUCT_USAGE_MAP: list[tuple[list[str], str]] = [
-    (["선크림", "선블록", "선스크린", "sunscreen", "sun", "spf"],
-     "외출 30분 전 얼굴 전체에 동전 크기(2mg/cm²)만큼 넉넉히 발라주세요. 2~3시간마다 덧바르면 효과가 유지됩니다."),
-    (["세럼", "앰플", "serum", "ampoule"],
-     "세안 후 토너로 결을 정돈한 뒤, 소량(펌프 1~2번)을 손끝에 덜어 피부를 살살 눌러주듯 흡수시켜 주세요."),
-    (["에센스", "essence"],
-     "토너 다음 단계에서 적당량을 손바닥에 덜어 체온으로 살짝 데운 후 얼굴 전체에 부드럽게 펴 발라주세요."),
-    (["아이크림", "eye"],
-     "약지손가락으로 눈 주변 뼈 위를 따라 도트를 찍듯 소량 올린 뒤 부드럽게 두드려 흡수시켜 주세요. 눈꺼풀 직접 접촉은 피해주세요."),
-    (["크림", "cream", "밤", "로션", "lotion"],
-     "세럼·에센스가 완전히 흡수된 후 마지막 단계에서 적당량을 얼굴 안쪽에서 바깥쪽으로 부드럽게 펴 발라 수분을 마무리해 주세요."),
-    (["토너", "스킨", "toner", "water", "워터"],
-     "세안 직후 화장솜에 덜어 결을 따라 닦아내거나, 손바닥에 덜어 가볍게 눌러주듯 흡수시켜 주세요."),
-    (["클렌저", "폼클", "클렌징", "cleanser", "wash"],
-     "적당량을 물로 충분히 거품 낸 후 30초~1분간 마사지하듯 세안하고 미온수로 깨끗이 헹궈주세요."),
-    (["마스크", "패드", "mask", "pad"],
-     "세안 후 정돈된 피부에 10~20분간 올려두고, 제거 후 남은 에센스를 가볍게 두드려 흡수시켜 주세요."),
-]
-
-_DEFAULT_USAGE = "세안 후 피부 결을 따라 적당량을 부드럽게 펴 발라주세요."
-
-def _get_product_usage(product_name: str) -> str:
-    """제품명 키워드로 카테고리를 판단하여 맞는 사용법 반환."""
-    name_lower = product_name.lower()
-    for keywords, usage in _PRODUCT_USAGE_MAP:
-        if any(kw in name_lower for kw in keywords):
-            return usage
-    return _DEFAULT_USAGE
-
-
 # ── 인증 엔드포인트 ──────────────────────────────────────────────────
 
 @app.post("/api/register")
 def api_register(body: AuthBody):
     try:
-        user = register_user(body.email, body.password)
+        user = register_user(body.username, body.password)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     token = create_session(user["id"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+    return {"token": token, "user": {"id": user["id"], "username": user["username"]}}
 
 
 @app.post("/api/login")
 def api_login(body: AuthBody):
-    user = login_user(body.email, body.password)
+    user = login_user(body.username, body.password)
     if not user:
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
     token = create_session(user["id"])
-    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+    return {"token": token, "user": {"id": user["id"], "username": user["username"]}}
 
 
 @app.post("/api/logout")
@@ -402,16 +543,6 @@ def api_me(authorization: str | None = Header(default=None)):
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
     return user
-
-
-@app.delete("/api/me")
-def api_delete_account(authorization: str | None = Header(default=None)):
-    """회원 탈퇴 — 유저 및 모든 관련 데이터 삭제."""
-    user = _current_user(authorization)
-    if not user:
-        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    delete_user(user["id"])
-    return {"ok": True, "message": "회원 탈퇴가 완료되었습니다."}
 
 
 # ── 분석/히스토리 엔드포인트 ───────────────────────────────────────────
@@ -462,7 +593,7 @@ async def analyze(
     # 생활습관 델타를 CNN 속성에 반영한 조정 점수 사용 (이미지 불검출 속성 보완)
     lifestyle_adjusted_attrs = {
         k: min(100.0, max(0.0, cnn_attrs.get(k, 0.0) + lifestyle_deltas.get(k, 0.0)))
-        for k in ("wrinkle", "pigmentation", "pore", "dryness", "sagging")
+        for k in ("wrinkle", "pigmentation", "pore", "dryness", "sagging", "acne")
     }
     raw_concerns  = _parse_concerns(form.get("concerns", []))
     age_group     = form.get("ageGroup", form.get("age_group"))
@@ -481,99 +612,32 @@ async def analyze(
     )
     avoid_names = get_avoid_ingredients(allergy_list, is_pregnant)
 
-    # ⑥ 제품 검색
-    search_concerns = [_CONCERN_NORMALIZE.get(c, c) for c in raw_concerns]
-    uv_exposure     = form.get("uvExposure", form.get("uv_exposure", "보통"))
+    # ⑥ 제품 검색 — Claude 검색어 생성 + 네이버 API
     products: list[dict] = []
-    if search_concerns:
-        try:
-            df = _get_search().search(
-                concerns=search_concerns,
-                categories=[],
-                is_pregnant=is_pregnant,
-                uv_exposure=uv_exposure,
-                top_k=3,
-            )
-            for _, row in df.iterrows():
-                raw_score = float(row.get("점수", 1))
-                raw_name = str(row.get("제품명", ""))
-                spaced_name = raw_name
 
-                products.append({
-                    "brand":  str(row.get("업체명", "")),
-                    "name":   spaced_name,
-                    "match":  int(min(99, 75 + raw_score * 3)),
-                    "tags":   raw_concerns[:2],
-                    "reason": explain_recommendation(
-                        cnn_attrs, sensitivity_class, rec_names, avoid_names,
-                        raw_name, rank=_ + 1
-                    ),
-                    "usage":  _get_product_usage(raw_name),
-                    "price": "",
-                    "shot":  "",
-                })
-        except Exception:
-            logger.exception("제품 검색 실패")
+    try:
+        products = await _oliveyoung_recommend(fe_attrs, raw_concerns, skin_label, rec_names)
+    except Exception:
+        logger.exception("올리브영 추천 실패")
 
     summary = build_skin_summary(cnn_attrs, sensitivity_class)
 
     # ⑦ Claude AI 설명 (구조화 dict)
     explanation = await _generate_explanation(fe_attrs, form, rec_names)
 
-    # ⑧ 음식 추천
-    import datetime
-    today_str = datetime.date.today().strftime("%Y%m%d")
-    food_seed = hash(today_str) % (2**32)
-    food_recommender = FoodRecommender()
-    is_vegan = form.get("vegan", False)
-    food_allergies = _parse_allergies(form.get("food_allergies", ""))
-    foods_raw = food_recommender.recommend(
-        attributes=lifestyle_adjusted_attrs,
-        sensitivity_class=str(sensitivity_class),
-        concerns=raw_concerns,
-        is_vegan=is_vegan,
-        food_allergies=food_allergies,
-        seed=food_seed,
-    )
-    foods = foods_raw if foods_raw else []
-
     caution_names = get_caution_ingredients(lifestyle_adjusted_attrs, sensitivity_class)
-
-    # ── 성분 Fallback: 추천 성분이 비어있을 경우 폼 기반 기본 성분 제공
-    enriched_rec = enrich_rec(rec_names)
-    if not enriched_rec:
-        _skin_type = form.get("skinType", "")
-        _fallback_ings: list[str] = []
-        if _skin_type in ("건성",):
-            _fallback_ings = ["히알루론산", "세라마이드", "글리세린"]
-        elif _skin_type in ("지성", "복합성"):
-            _fallback_ings = ["나이아신아마이드", "살리실산", "판테놀"]
-        elif _skin_type in ("민감성",):
-            _fallback_ings = ["센텔라아시아티카", "판테놀", "마데카소사이드"]
-        else:
-            _fallback_ings = ["판테놀", "글리세린", "나이아신아마이드"]
-        enriched_rec = enrich_rec(_fallback_ings)
-
-    # ── 회피 성분 Fallback: 비어있고 민감도가 있을 때 기본 제공
-    enriched_avoid = enrich_avoid(avoid_names)
-    if not enriched_avoid and sensitivity_class >= 1:
-        enriched_avoid = enrich_avoid(["에탄올", "향료"])
-
     result = {
         "attributes":              fe_attrs,
         "composite_score":         score,
         "skin_type_label":         skin_label,
         "summary":                 summary,
-        "recommended_ingredients": enriched_rec,
-        "avoid_ingredients":       enriched_avoid,
+        "recommended_ingredients": enrich_rec(rec_names),
+        "avoid_ingredients":       enrich_avoid(avoid_names),
         "caution_ingredients":     enrich_caution(caution_names),
         "products":                products,
-        "procedures":              get_recommended_procedures(lifestyle_adjusted_attrs, sensitivity_class),
         "ml_available":            _ml_available(),
         "face_detected":           face_detected,
         "explanation":             explanation,
-        "foods":                   foods,
-        "input_form":              form,
     }
 
     # ⑧ 기록 저장 (full_data 포함)
@@ -601,41 +665,49 @@ def history(authorization: Optional[str] = Header(default=None)):
 
 
 @app.get("/api/history/last_form")
-def last_form(authorization: Optional[str] = Header(default=None)):
-    """최근 분석 기록에서 입력했던 폼 데이터(input_form)를 가져옵니다."""
+def history_last_form(authorization: Optional[str] = Header(default=None)):
+    """마지막 분석 폼 데이터 반환 (폼 자동완성용)."""
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    
-    hist = get_history(limit=1, user_id=user["id"])
-    if not hist:
-        raise HTTPException(status_code=404, detail="기록이 없습니다.")
-    
-    full_data = get_analysis_detail(hist[0]["id"], user_id=user["id"])
-    if not full_data or "input_form" not in full_data:
-        raise HTTPException(status_code=404, detail="이전 폼 데이터를 찾을 수 없습니다.")
-        
-    return full_data["input_form"]
+    items = get_history(limit=1, user_id=user["id"])
+    if not items:
+        return {}
+    detail = get_analysis_detail(items[0]["id"], user_id=user["id"])
+    if not detail:
+        return {}
+    return detail.get("form_data", detail.get("form", {}))
 
 
 @app.get("/api/history/{analysis_id}")
 def history_detail(analysis_id: int, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
-    data = get_analysis_detail(analysis_id, user_id=user["id"] if user else None)
+    # #19 Privacy fix: 비로그인 사용자의 타인 데이터 열람 차단
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    data = get_analysis_detail(analysis_id, user_id=user["id"])
     if not data:
         raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없습니다.")
     return data
 
 
-@app.delete("/api/history/{analysis_id}")
-def delete_history_endpoint(analysis_id: int, authorization: Optional[str] = Header(default=None)):
+@app.delete("/api/me")
+def delete_account(authorization: Optional[str] = Header(default=None)):
+    """회원 탈퇴: 계정 및 모든 분석 기록 삭제."""
     user = _current_user(authorization)
     if not user:
-        raise HTTPException(status_code=401, detail="권한이 없습니다.")
-    success = delete_history(analysis_id, user_id=user["id"])
-    if not success:
-        raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없거나 삭제 권한이 없습니다.")
-    return {"ok": True}
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    delete_user(user["id"])
+    return {"deleted": True}
+
+
+@app.delete("/api/history/{analysis_id}")
+def history_delete(analysis_id: int, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    ok = delete_analysis(analysis_id, user_id=user["id"] if user else None)
+    if not ok:
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
+    return {"deleted": analysis_id}
 
 
 @app.get("/api/ingredient/{name}")
@@ -644,29 +716,259 @@ async def ingredient_detail(name: str):
     return info
 
 
+class ClinicRequest(BaseModel):
+    mode: str = "auto"
+    budget: str = ""
+    selected_treatments: list[str] = []
+    analysis_data: dict | None = None
 
-# ── 통합 사용자 데이터 관리 API ──────────────────────────────────────
 
-from pydantic import BaseModel
-from typing import Optional
-from fastapi import Header, HTTPException
-from api.db import (
-    update_user_info, get_user_by_id,
-    add_diary, get_diaries, delete_diary,
-    add_notification, get_notifications, mark_notifications_read, delete_notification
-)
+@app.post("/api/clinic/recommend")
+async def clinic_recommend(req: ClinicRequest, authorization: str | None = Header(default=None)):
+    client = _claude_client()
 
-class UserSettingsUpdate(BaseModel):
+    # 피부 속성 텍스트 구성
+    attrs = []
+    skin_label = ""
+    if req.analysis_data:
+        attrs = req.analysis_data.get("attributes", [])
+        skin_label = req.analysis_data.get("skin_type_label", "")
+
+    attr_text = (
+        ", ".join(
+            f"{a['name']} {a['value']}({'높음' if a['level']=='hi' else '낮음' if a['level']=='lo' else '보통'})"
+            for a in attrs
+        )
+        if attrs else "피부 데이터 없음 (일반 추천)"
+    )
+
+    treatment_text = (
+        f"관심 시술: {', '.join(req.selected_treatments)}"
+        if req.selected_treatments
+        else "관심 시술 없음 (피부 상태 기반 자동 추천)"
+    )
+
+    # Claude 없을 때 폴백
+    if not client:
+        return {
+            "summary": f"예산 {req.budget} 기준으로 피부 상태({skin_label or '일반'})에 적합한 시술을 안내합니다. 아래 추천 시술을 참고하시고 전문 피부과 의사와 상담하세요.",
+            "treatments": [
+                {"name": "레이저 토닝", "priority": "우선 추천", "reason": "색소 및 피부결 개선에 효과적이며 부작용이 낮습니다.", "effect": "잡티·칙칙함 완화, 피부 톤 균일", "caution": "시술 후 자외선 차단 필수", "price_range": "5~15만원", "interval": "2~4주 간격"},
+                {"name": "스킨부스터", "priority": "보조 추천", "reason": "수분 공급과 피부 장벽 강화에 효과적입니다.", "effect": "즉각적인 수분감·광채", "caution": "시술 당일 세안 자제", "price_range": "10~25만원", "interval": "4~6주 간격"},
+            ],
+            "order_plan": "1단계: 레이저 토닝으로 피부 기저 개선 → 2단계: 스킨부스터로 수분·장벽 강화. 두 시술은 같은 날 병행 가능하나, 처음이라면 1~2주 간격을 두고 반응을 확인하세요.",
+            "aftercare": [
+                "시술 후 2주간 직사광선 노출을 최소화하고 SPF50 이상 자외선 차단제를 꼼꼼히 사용하세요.",
+                "고함량 비타민C, 레티놀, AHA/BHA 등 자극성 성분은 시술 후 1주일간 사용을 자제하세요.",
+                "시술 부위를 손으로 만지거나 세게 문지르지 마세요.",
+                "충분한 수분 섭취와 충분한 수면이 회복을 돕습니다.",
+            ],
+        }
+
+    try:
+        prompt = f"""피부과 시술 정보 안내 AI입니다. 아래 정보 기반으로 반드시 유효한 JSON만 출력하세요.
+
+피부속성: {attr_text}
+피부타입: {skin_label or '분석없음'}
+예산: {req.budget}
+{treatment_text}
+
+규칙: 의료 진단·처방 금지. 정보 제공 목적. 예산 내 최대 2개 시술 추천.
+
+{{"summary":"피부상태와예산고려한방향(2문장)","treatments":[{{"name":"시술명","priority":"우선추천","reason":"이피부에맞는이유(2문장)","effect":"기대효과","caution":"주의사항","price_range":"가격대","interval":"시술간격"}}],"order_plan":"시술순서및단계접근(3문장,과시술방지포함)","aftercare":["관리팁1","관리팁2","관리팁3"]}}
+
+위 JSON 구조를 지키되 값만 한국어로 채워서 출력하세요."""
+
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        import re
+        text = msg.content[0].text.strip()
+        # JSON 블록 추출 (```json ... ``` 포함 대응)
+        m = re.search(r"```(?:json)?\s*(\{[\s\S]+?\})\s*```", text)
+        if m:
+            text = m.group(1)
+        else:
+            m2 = re.search(r"\{[\s\S]+\}", text)
+            if m2:
+                text = m2.group()
+        return json.loads(text)
+    except Exception as e:
+        logger.warning("clinic recommend 오류: %s", e)
+        raise HTTPException(status_code=500, detail="시술 추천 생성 실패")
+
+
+class DietRequest(BaseModel):
+    mode: str = "auto"
+    selected_foods: list[str] = []
+    water_intake: str = ""
+    meal_freq: str = ""
+    analysis_data: dict | None = None
+
+
+def _diet_fallback(mode: str) -> dict:
+    if mode == "auto":
+        return {
+            "summary": "현재 피부 상태를 고려한 식단 가이드입니다. 항산화 식품과 오메가-3가 풍부한 식단이 피부 개선에 도움됩니다.",
+            "recommended_foods": [
+                {"name": "연어·고등어", "nutrient": "오메가-3", "benefit": "염증 억제 및 피부 장벽 강화", "tip": "주 2-3회 구워서 섭취"},
+                {"name": "블루베리·딸기", "nutrient": "안토시아닌·비타민C", "benefit": "항산화 및 콜라겐 합성 촉진", "tip": "매일 한 줌, 요거트와 함께"},
+                {"name": "시금치·브로콜리", "nutrient": "비타민A·C·E", "benefit": "피부 재생 및 항산화", "tip": "살짝 데쳐 들기름 무침으로 섭취"},
+            ],
+            "avoid_foods": [
+                {"name": "설탕·단 음료", "reason": "혈당 급등으로 피지 과다 분비 유발", "alternative": "천연 과일로 대체"},
+                {"name": "가공식품·인스턴트", "reason": "트랜스지방으로 피부 염증 악화", "alternative": "집밥·간단 요리로 대체"},
+                {"name": "과도한 음주", "reason": "피부 건조 및 색소침착 악화", "alternative": "탄산수·허브티로 대체"},
+            ],
+            "gut_tip": "장 건강은 피부 면역의 핵심입니다. 김치·된장 등 발효식품을 매일 섭취하고 식이섬유가 풍부한 채소로 장내 유익균을 키워보세요.",
+            "daily_tips": [
+                "아침: 귀리·블루베리 스무디볼로 항산화 영양소 보충",
+                "점심: 생선구이 + 나물류 + 잡곡밥 조합 권장",
+                "저녁: 부담 없는 두부·채소 위주 식사 + 물 2잔",
+            ],
+        }
+    return {
+        "summary": "입력하신 식단을 분석했습니다. 몇 가지 개선으로 피부 상태를 크게 향상시킬 수 있어요.",
+        "positive_impacts": [
+            {"food": "채소·과일", "benefit": "항산화 성분이 피부 세포 손상을 방지합니다"},
+            {"food": "발효식품", "benefit": "장내 유익균 증가로 피부 면역력이 강화됩니다"},
+        ],
+        "negative_impacts": [
+            {"food": "설탕·정제 탄수화물", "risk": "혈당 급등이 피지 분비를 늘려 트러블을 유발합니다", "tip": "잡곡밥·통곡물로 대체해보세요"},
+            {"food": "가공·패스트푸드", "risk": "트랜스지방·나트륨이 피부 염증을 악화시킵니다", "tip": "주 1-2회 이하로 줄이고 집밥 비중을 늘려보세요"},
+        ],
+        "improvements": [
+            "하루 물 1.5L 이상 섭취 — 피부 수분 유지의 기본",
+            "매끼 손바닥 크기의 채소 추가 — 비타민·미네랄 보충",
+            "발효식품(김치·된장) 매일 1회 이상 — 장-피부 축 강화",
+        ],
+        "gut_tip": "피부 트러블의 상당수는 장 건강과 연결됩니다. 프로바이오틱스(유산균)와 프리바이오틱스(식이섬유)를 함께 섭취하면 피부 염증이 줄어드는 효과를 기대할 수 있어요.",
+        "recipe_tip": "아침에 귀리 + 키위 + 요거트 조합을 시도해보세요. 비타민C·오메가-3·유산균이 한 번에 공급되어 피부 밝기와 장 건강에 모두 도움됩니다.",
+    }
+
+
+@app.post("/api/diet/recommend")
+async def diet_recommend(req: DietRequest, authorization: Optional[str] = Header(default=None)):
+    """피부 맞춤 식단 추천 (리포트 기반 / 식단 입력 분석)."""
+    client = _claude_client()
+
+    attrs_text = "피부 데이터 없음 (일반 추천)"
+    skin_label = ""
+    if req.analysis_data:
+        attrs = req.analysis_data.get("attributes", [])
+        skin_label = req.analysis_data.get("skin_type_label", "")
+        if attrs:
+            attrs_text = ", ".join(
+                f"{a['name']} {a['value']}({'높음' if a['level']=='hi' else '낮음' if a['level']=='lo' else '보통'})"
+                for a in attrs
+            )
+
+    if not client:
+        return _diet_fallback(req.mode)
+
+    try:
+        if req.mode == "auto":
+            prompt = f"""피부 상태에 맞는 식단을 추천해주세요. 반드시 유효한 JSON만 출력하세요.
+
+피부 속성: {attrs_text}
+피부 타입: {skin_label or '일반'}
+규칙: 의료 진단·처방 금지. 정보 제공 목적. recommended_foods 3개, avoid_foods 3개.
+
+{{"summary":"현재 피부 상태와 식단 연관성(친근한 말투 2문장)","recommended_foods":[{{"name":"음식명","nutrient":"핵심 영양소","benefit":"피부 효과","tip":"섭취 방법"}}],"avoid_foods":[{{"name":"음식명","reason":"주의 이유","alternative":"대체 식품"}}],"gut_tip":"장 건강이 피부에 미치는 영향과 개선 팁(2문장)","daily_tips":["아침 식단 팁","점심 식단 팁","저녁 식단 팁"]}}
+
+위 JSON 구조를 지키되 값만 한국어로 채워 출력하세요."""
+        else:
+            foods_text = ", ".join(req.selected_foods) if req.selected_foods else "선택 없음"
+            prompt = f"""입력한 식단을 분석해서 피부 영향을 알려주세요. 반드시 유효한 JSON만 출력하세요.
+
+자주 먹는 음식: {foods_text}
+물 섭취: {req.water_intake or '보통'}
+식사 횟수: {req.meal_freq or '3끼'}
+피부 정보: {attrs_text}
+
+{{"summary":"현재 식단의 피부 영향 분석(친근한 말투 2문장)","positive_impacts":[{{"food":"음식","benefit":"피부 효과"}}],"negative_impacts":[{{"food":"음식","risk":"피부 위험","tip":"개선 방법"}}],"improvements":["개선 제안1","개선 제안2","개선 제안3"],"gut_tip":"장 건강 팁(2문장)","recipe_tip":"이 피부에 좋은 음식 조합 추천(2문장)"}}
+
+위 JSON 구조를 지키되 값만 한국어로 채워 출력하세요."""
+
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        import re as _re_diet
+        text = msg.content[0].text.strip()
+        m = _re_diet.search(r"```(?:json)?\s*(\{[\s\S]+?\})\s*```", text)
+        if m:
+            text = m.group(1)
+        else:
+            m2 = _re_diet.search(r"\{[\s\S]+\}", text)
+            if m2:
+                text = m2.group()
+        return json.loads(text)
+    except Exception as e:
+        logger.warning("diet recommend 오류: %s", e)
+        return _diet_fallback(req.mode)
+
+
+# ── 프로필 ─────────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
     nickname: Optional[str] = None
-    settings_json: Optional[str] = None
 
 @app.patch("/api/me")
-def update_me(payload: UserSettingsUpdate, authorization: Optional[str] = Header(default=None)):
+def update_profile(body: ProfileUpdate, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
-        raise HTTPException(status_code=401)
-    update_user_info(user["id"], nickname=payload.nickname, settings_json=payload.settings_json)
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    update_user_info(user["id"], nickname=body.nickname)
+    return get_user_by_id(user["id"])
+
+
+# ── 알림 ────────────────────────────────────────────────────────────────
+
+class NotificationCreate(BaseModel):
+    id: str
+    type: str = "info"
+    title: str
+    message: str
+    created_at: Optional[str] = None
+
+@app.get("/api/me/notifications")
+def get_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    return {"items": get_notifications(user["id"])}
+
+@app.post("/api/me/notifications")
+def create_my_notification(payload: NotificationCreate, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    add_notification(payload.id, user["id"], payload.type, payload.title, payload.message, payload.created_at)
     return {"ok": True}
+
+@app.put("/api/me/notifications/read")
+def read_my_notifications(authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    mark_notifications_read(user["id"])
+    return {"ok": True}
+
+@app.delete("/api/me/notifications/{notif_id}")
+def delete_my_notification(notif_id: str, authorization: Optional[str] = Header(default=None)):
+    user = _current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    if not delete_notification(notif_id, user["id"]):
+        raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다.")
+    return {"deleted": notif_id}
+
+
+# ── 식단 일기 ───────────────────────────────────────────────────────────
 
 class DiaryCreate(BaseModel):
     id: str
@@ -679,103 +981,69 @@ class DiaryCreate(BaseModel):
 def get_my_diary(authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
     return {"items": get_diaries(user["id"])}
 
 @app.post("/api/me/diary")
-def create_my_diary(payload: DiaryCreate, authorization: Optional[str] = Header(default=None)):
+def create_diary(payload: DiaryCreate, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
     add_diary(payload.id, user["id"], payload.date, payload.food, payload.skin_effect, payload.notes)
     return {"ok": True}
 
-@app.delete("/api/me/diary/{id}")
-def delete_my_diary(id: str, authorization: Optional[str] = Header(default=None)):
+@app.delete("/api/me/diary/{diary_id}")
+def delete_diary_entry(diary_id: str, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
-        raise HTTPException(status_code=401)
-    if not delete_diary(id, user["id"]):
-        raise HTTPException(status_code=404)
-    return {"ok": True}
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    if not delete_diary(diary_id, user["id"]):
+        raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
+    return {"deleted": diary_id}
 
-class NotificationCreate(BaseModel):
-    id: str
-    type: str
+
+# ── 위시리스트 ──────────────────────────────────────────────────────────
+
+class WishlistAdd(BaseModel):
+    item_type: str = "product"
     title: str
-    message: str
-    created_at: Optional[str] = None
-
-@app.get("/api/me/notifications")
-def get_my_notifications(authorization: Optional[str] = Header(default=None)):
-    user = _current_user(authorization)
-    if not user:
-        raise HTTPException(status_code=401)
-    return {"items": get_notifications(user["id"])}
-
-@app.post("/api/me/notifications")
-def create_my_notification(payload: NotificationCreate, authorization: Optional[str] = Header(default=None)):
-    user = _current_user(authorization)
-    if not user:
-        raise HTTPException(status_code=401)
-    add_notification(payload.id, user["id"], payload.type, payload.title, payload.message, payload.created_at)
-    return {"ok": True}
-
-@app.put("/api/me/notifications/read")
-def read_my_notifications(authorization: Optional[str] = Header(default=None)):
-    user = _current_user(authorization)
-    if not user:
-        raise HTTPException(status_code=401)
-    mark_notifications_read(user["id"])
-    return {"ok": True}
-
-@app.delete("/api/me/notifications/{id}")
-def delete_my_notification(id: str, authorization: Optional[str] = Header(default=None)):
-    user = _current_user(authorization)
-    if not user:
-        raise HTTPException(status_code=401)
-    if not delete_notification(id, user["id"]):
-        raise HTTPException(status_code=404)
-    return {"ok": True}
-
-
-# ── 위시리스트 API ────────────────────────────────────────────────
-class WishlistCreate(BaseModel):
-    item_type: str  # 'product' or 'treatment'
-    title: str
-    subtitle: str | None = None
+    subtitle: Optional[str] = None
 
 @app.get("/api/me/wishlist")
-def api_get_wishlist(authorization: Optional[str] = Header(default=None)):
+def get_my_wishlist(authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    from api.db import get_wishlist
-    return get_wishlist(user["id"])
+    return {"items": get_wishlist(user["id"])}
 
 @app.post("/api/me/wishlist")
-def api_add_wishlist(payload: WishlistCreate, authorization: Optional[str] = Header(default=None)):
+def add_my_wishlist(payload: WishlistAdd, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    from api.db import add_wishlist
     item_id = add_wishlist(user["id"], payload.item_type, payload.title, payload.subtitle)
-    return {"ok": True, "id": item_id}
+    return {"id": item_id}
 
 @app.delete("/api/me/wishlist/{item_id}")
-def api_delete_wishlist(item_id: str, authorization: Optional[str] = Header(default=None)):
+def remove_my_wishlist(item_id: str, authorization: Optional[str] = Header(default=None)):
     user = _current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    from api.db import delete_wishlist
-    success = delete_wishlist(item_id, user["id"])
-    if not success:
-        raise HTTPException(status_code=404, detail="권한이 없거나 찾을 수 없습니다.")
-    return {"ok": True}
+    if not delete_wishlist(item_id, user["id"]):
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    return {"deleted": item_id}
 
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "design"
 if _FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
+    from fastapi.responses import FileResponse
+    from fastapi import Request as _Req
 
-
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend(full_path: str, request: _Req):
+        target = _FRONTEND_DIR / (full_path or "index.html")
+        if not target.exists() or target.is_dir():
+            target = _FRONTEND_DIR / "index.html"
+        resp = FileResponse(str(target))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return resp

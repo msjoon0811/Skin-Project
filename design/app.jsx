@@ -1,178 +1,56 @@
 // Main app — routing + auth + top nav
 const App = () => {
-  const [screen, setScreen] = React.useState('login');
-  const [user, setUser] = React.useState(null);
-  const [token, setToken] = React.useState(null);
+  const [screen, setScreen]             = React.useState('login');
+  const [user, setUser]                 = React.useState(null);
+  const [token, setToken]               = React.useState(null);
   const [analysisData, setAnalysisData] = React.useState(null);
-  const [historyList, setHistoryList] = React.useState([]);
-  const [notifications, setNotifications] = React.useState([]);
-  const [showNotifications, setShowNotifications] = React.useState(false);
+  const [historyList, setHistoryList]   = React.useState([]);
+  const [clinicData, setClinicData]     = React.useState(null);
+  const [notifications, setNotifications] = React.useState([]);  // #10 DB알림
+  const [showSettings, setShowSettings]   = React.useState(false);
+  const [showBell, setShowBell]           = React.useState(false);
   const [showAvatarMenu, setShowAvatarMenu] = React.useState(false);
-  const [showSettings, setShowSettings] = React.useState(false);
-  const [settings, setSettings] = React.useState({
-    hasAllergies: false, allergyList: [], customAllergies: '', lifestyle: '보통', concerns: [], darkMode: false, fontSize: '보통', pushEnabled: true
-  });
+  const [darkMode, setDarkMode]           = React.useState(() => localStorage.getItem('skin_dark') === '1');
+  const [fontSize, setFontSize]           = React.useState(() => localStorage.getItem('skin_fontsize') || 'md');
+  const settingsRef = React.useRef(null);
+  const bellRef     = React.useRef(null);
+  const avatarRef   = React.useRef(null);
 
-  // Load notifications from DB
+  // 다크모드 적용
   React.useEffect(() => {
-    if (user && token) {
-      fetch('/api/me/notifications', { headers: { Authorization: 'Bearer ' + token } })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d && d.items) setNotifications(d.items); })
-        .catch(() => {});
-    } else {
-      setNotifications([]);
-    }
-  }, [user, token]);
+    document.body.classList.toggle('dark', darkMode);
+    localStorage.setItem('skin_dark', darkMode ? '1' : '0');
+  }, [darkMode]);
 
-  // Generate notifications based on data
+  // 글자 크기 적용 — zoom으로 전체 스케일링 (px 단위 CSS에 유일하게 효과 있음)
   React.useEffect(() => {
-    if (!user || !token) return;
-    if (!settings.pushEnabled) return;  // 알림 수신 꺼져 있으면 생성 안 함
-    let delayCounter = 0;
+    const map = { sm: '0.88', md: '1', lg: '1.14' };
+    document.body.style.zoom = map[fontSize] || '1';
+    localStorage.setItem('skin_fontsize', fontSize);
+  }, [fontSize]);
 
-    const addNotif = (title, message, type) => {
-      setNotifications(prev => {
-        const newNotifs = [...prev];
-        const exists = newNotifs.some(n => n.message === message);
-        if (!exists) {
-          delayCounter++;
-          const newId = Date.now().toString() + delayCounter.toString().padStart(4, '0');
-          const createdAt = new Date(Date.now() + delayCounter).toISOString();
-          
-          const nObj = { id: newId, title, message, type, is_read: false };
-          newNotifs.unshift(nObj);
-          
-          fetch('/api/me/notifications', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-            body: JSON.stringify({ ...nObj, created_at: createdAt })
-          }).catch(()=>{});
-        }
-        return newNotifs;
-      });
-    };
-
-    if (historyList && historyList.length > 0) {
-      const latest = historyList[0];
-      let lastDate = new Date(latest.created_at || latest.date || Date.now());
-      if (isNaN(lastDate.getTime())) lastDate = new Date();
-      
-      const daysPassed = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 3600 * 24));
-      
-      if (daysPassed > 0) {
-        if (!localStorage.getItem(`notif_reminder_${user.id}_${daysPassed}`)) {
-          addNotif('정기 분석 리마인더', `마지막 피부 분석 후 ${daysPassed}일이 지났어요! 계절이 바뀌었는데 오늘의 피부 상태를 확인해볼까요?`, 'reminder');
-          localStorage.setItem(`notif_reminder_${user.id}_${daysPassed}`, '1');
-        }
-      } else {
-        if (!localStorage.getItem(`notif_complete_${user.id}_${latest.id}`)) {
-          addNotif('분석 완료', '최근 피부 분석을 완료하셨네요! 꾸준히 기록을 남겨 피부 변화를 확인해보세요.', 'complete');
-          localStorage.setItem(`notif_complete_${user.id}_${latest.id}`, '1');
-        }
-      }
-    } else if (historyList && historyList.length === 0) {
-      if (!localStorage.getItem(`notif_welcome_${user.id}`)) {
-        addNotif('환영합니다!', '아직 피부 분석 기록이 없습니다. 첫 분석을 진행하여 맞춤 추천을 받아보세요!', 'welcome');
-        localStorage.setItem(`notif_welcome_${user.id}`, '1');
-      }
-    }
-  }, [user, token, historyList, settings.pushEnabled]);
-
-  const handleOpenNotifications = () => {
-    setShowNotifications(!showNotifications);
-    if (!showNotifications) {
-      const unread = notifications.filter(n => !n.is_read);
-      if (unread.length > 0) {
-        setNotifications(notifications.map(n => ({...n, is_read: true})));
-        if (token) {
-          fetch('/api/me/notifications/read', { method: 'PUT', headers: { Authorization: 'Bearer ' + token } }).catch(()=>{});
-        }
-      }
-    }
-  };
-
-  const handleDeleteNotification = (id) => {
-    setNotifications(notifications.filter(n => n.id !== id));
-    if (token) {
-      fetch('/api/me/notifications/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }).catch(()=>{});
-    }
-  };
-
-  // Apply CSS classes to body based on settings
-  React.useEffect(() => {
-    if (settings.darkMode) document.body.classList.add('dark-mode');
-    else document.body.classList.remove('dark-mode');
-
-    let scale = 1;
-    if (settings.fontSize === '작게') scale = 0.9;
-    if (settings.fontSize === '크게') scale = 1.15;
-    
-    // 강제로 인라인 스타일 적용 (브라우저 캐시 우회 및 확실한 동작 보장)
-    document.documentElement.style.setProperty('zoom', scale);
-    // Firefox 등 zoom 미지원 브라우저 대비 대체 속성
-    document.documentElement.style.setProperty('-moz-transform', `scale(${scale})`);
-    document.documentElement.style.setProperty('-moz-transform-origin', 'top center');
-  }, [settings.darkMode, settings.fontSize]);
-
-  const handlePushToggle = (checked) => {
-    if (!checked) {
-      alert("알림 수신 동의를 해제하셨습니다. 앞으로 피부 분석 리마인더 등의 알림이 오지 않습니다.");
-    }
-    setSettings({...settings, pushEnabled: checked});
-  };
-
-  const handleSaveSettings = (newSettings = null) => {
-    setShowSettings(false);
-    const toSave = newSettings || settings;
-    if (newSettings && newSettings !== settings) setSettings(toSave);
-    if (token) {
-      fetch('/api/me', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ settings_json: JSON.stringify(toSave) })
-      }).catch(()=>{});
-    }
-  };
-
-  const go = (s, replace = false) => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
+  // #12 브라우저 뒤로가기 지원
+  const go = (s) => {
+    window.scrollTo({top:0, behavior:'instant'});
+    window.history.pushState({screen: s}, '');
     setScreen(s);
+    // #1 F5 새로고침 유지 — 현재 화면 저장
     if (s !== 'login') sessionStorage.setItem('skin_screen', s);
     else sessionStorage.removeItem('skin_screen');
-    
-    if (replace) {
-      window.history.replaceState({ screen: s }, '', `?screen=${s}`);
-    } else {
-      window.history.pushState({ screen: s }, '', `?screen=${s}`);
-    }
   };
 
   React.useEffect(() => {
-    const handlePopState = (e) => {
-      if (e.state && e.state.screen) {
-        setScreen(e.state.screen);
-        if (e.state.screen !== 'login') sessionStorage.setItem('skin_screen', e.state.screen);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+    const handlePop = (e) => {
+      const s = (e.state && e.state.screen) ? e.state.screen : 'dashboard';
+      window.scrollTo({top:0, behavior:'instant'});
+      setScreen(s);
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', handlePop);
+    window.history.replaceState({screen: screen}, '');
+    return () => window.removeEventListener('popstate', handlePop);
   }, []);
 
-  React.useEffect(() => {
-    if (analysisData) sessionStorage.setItem('skin_analysis', JSON.stringify(analysisData));
-  }, [analysisData]);
-
-  const fetchHistory = (tok) => {
-    const t = tok || token;
-    const headers = t ? { Authorization: 'Bearer ' + t } : {};
-    fetch('/api/history', { headers })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d && d.items) setHistoryList(d.items); })
-      .catch(() => {});
-  };
-
+  // 앱 시작 시 저장된 토큰으로 자동 로그인
   React.useEffect(() => {
     const saved = localStorage.getItem('skin_token');
     if (!saved) return;
@@ -182,32 +60,89 @@ const App = () => {
         if (!u) { localStorage.removeItem('skin_token'); return; }
         setToken(saved);
         setUser(u);
-        if (u.settings_json) {
-           try { setSettings(JSON.parse(u.settings_json)); } catch(e){}
-        }
         fetchHistory(saved);
-        const savedData = sessionStorage.getItem('skin_analysis');
-        if (savedData) {
-          try { setAnalysisData(JSON.parse(savedData)); } catch(e){}
+        fetchNotifications(saved);
+        // #1 F5 새로고침 — 이전 화면 및 분석 데이터 복원
+        const savedScreen   = sessionStorage.getItem('skin_screen');
+        const savedAnalysis = sessionStorage.getItem('skin_analysis');
+        if (savedAnalysis) {
+          try { setAnalysisData(JSON.parse(savedAnalysis)); } catch {}
         }
-        const savedScreen = sessionStorage.getItem('skin_screen');
-        if (savedScreen && savedScreen !== 'login') {
-          go(savedScreen, true);
-        } else {
-          go('dashboard', true);
-        }
+        go(savedScreen && savedScreen !== 'login' ? savedScreen : 'dashboard');
       })
       .catch(() => localStorage.removeItem('skin_token'));
   }, []);
+
+  // #1 F5 — 분석 데이터 변경 시 세션 저장
+  React.useEffect(() => {
+    if (analysisData) sessionStorage.setItem('skin_analysis', JSON.stringify(analysisData));
+  }, [analysisData]);
+
+  // 드롭다운 외부 클릭 닫기
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) setShowSettings(false);
+      if (bellRef.current && !bellRef.current.contains(e.target)) setShowBell(false);
+      if (avatarRef.current && !avatarRef.current.contains(e.target)) setShowAvatarMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchHistory = (tok) => {
+    const t = tok || token;
+    const headers = t ? { Authorization: 'Bearer ' + t } : {};
+    fetch('/api/history', { headers })
+      .then(r => r.json())
+      .then(d => { if (d.items) setHistoryList(d.items); })
+      .catch(() => {});
+  };
+
+  // #10 DB 알림 로드
+  const fetchNotifications = (tok) => {
+    const t = tok || token;
+    if (!t) return;
+    fetch('/api/me/notifications', { headers: { Authorization: 'Bearer ' + t } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.items) setNotifications(d.items); })
+      .catch(() => {});
+  };
+
+  // #10/#16 알림 생성 — 고유 ID로 중복/타임스탬프 충돌 방지
+  const pushNotification = (type, title, message) => {
+    if (!token) return;
+    // #16 타임스탬프 충돌 방지: nano-precision ID
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const created_at = new Date().toISOString();
+    const notif = { id, type, title, message, is_read: false, created_at };
+    // #18 이미 존재하는 같은 메시지 중복 방지
+    setNotifications(prev => {
+      if (prev.some(n => n.message === message)) return prev;
+      return [notif, ...prev];
+    });
+    fetch('/api/me/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(notif),
+    }).catch(() => {});
+  };
+
+  // #18 알림 삭제 — DB + 로컬 상태 동기화
+  const dismissNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    if (!token) return;
+    fetch('/api/me/notifications/' + id, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + token },
+    }).catch(() => {});
+  };
 
   const handleLogin = (u) => {
     const tok = localStorage.getItem('skin_token');
     setUser(u);
     setToken(tok);
-    if (u.settings_json) {
-       try { setSettings(JSON.parse(u.settings_json)); } catch(e){}
-    }
     fetchHistory(tok);
+    fetchNotifications(tok);
     go('dashboard');
   };
 
@@ -219,167 +154,251 @@ const App = () => {
     sessionStorage.removeItem('skin_screen');
     sessionStorage.removeItem('skin_analysis');
     setToken(null); setUser(null);
-    setAnalysisData(null); setHistoryList([]);
+    setAnalysisData(null); setHistoryList([]); setNotifications([]);
     setShowSettings(false);
     go('login');
   };
 
-  const handleWithdrawal = async () => {
-    if (!window.confirm('정말로 탈퇴하시겠습니까? 모든 분석 기록과 계정 정보가 영구 삭제됩니다.')) return;
-    if (!window.confirm('다시 한번 확인합니다. 탈퇴 후 복구가 불가능합니다. 계속하시겠습니까?')) return;
-    try {
-      if (token) {
-        await fetch('/api/me', { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-      }
-    } catch (e) {}
-    localStorage.removeItem('skin_token');
-    sessionStorage.clear();
-    setToken(null); setUser(null);
-    setAnalysisData(null); setHistoryList([]);
-    setShowSettings(false);
-    go('login');
-    alert('탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
+  const handleDeleteAccount = () => {
+    if (!window.confirm('계정을 탈퇴하면 모든 분석 기록이 삭제됩니다.\n정말 탈퇴하시겠습니까?')) return;
+    fetch('/api/me', {
+      method: 'DELETE',
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    })
+      .then(r => {
+        if (!r.ok) throw new Error('탈퇴 처리 실패');
+        localStorage.removeItem('skin_token');
+        sessionStorage.clear();
+        setToken(null); setUser(null);
+        setAnalysisData(null); setHistoryList([]); setNotifications([]);
+        setShowSettings(false);
+        go('login');
+      })
+      .catch(() => alert('탈퇴 처리 중 오류가 발생했습니다.'));
   };
 
   const handleAnalysisComplete = (data) => {
     setAnalysisData(data);
     fetchHistory();
+    // #10 분석 완료 알림 생성
+    if (data && data.composite_score != null) {
+      pushNotification('analysis', '피부 분석 완료', `종합 점수 ${data.composite_score}점 · ${data.skin_type_label || '분석 완료'}`);
+    }
     go('results');
   };
 
+  // 닉네임 등 user 정보 업데이트 — Mypage에서 저장 후 호출
+  const handleUpdateUser = (updated) => {
+    setUser(prev => ({ ...prev, ...updated }));
+  };
+
+  // 히스토리 삭제: App 레벨 상태도 즉시 반영
+  const handleDeleteHistory = (item) => {
+    setHistoryList(prev => {
+      const itemId = item.id || item.analysisId;
+      return prev.filter(h => {
+        if (itemId) return (h.id || h.analysisId) !== itemId;
+        return !(h.date === item.date && h.score === item.score);
+      });
+    });
+  };
+
   const authHeaders = () => token ? { Authorization: 'Bearer ' + token } : {};
+
   const showNav = screen !== 'login';
+
+  // #10 알림 드롭다운 항목: DB 알림 우선, 없으면 히스토리 기반 정적 생성
   const unreadCount = notifications.filter(n => !n.is_read).length;
+  const notifItems = notifications.length > 0
+    ? notifications.slice(0, 5)
+    : [
+        ...historyList.slice(0, 2).map(h => ({
+          id: 'h_' + h.id,
+          icon: 'chart',
+          title: '피부 분석 결과',
+          body: `${h.date} · 종합 ${h.score}점`,
+          is_read: true,
+        })),
+        { id: 'tip1', icon: 'sparkle', title: '2주 후 재분석 권장', body: '피부 상태 변화를 꾸준히 추적해보세요', is_read: true },
+        { id: 'tip2', icon: 'leaf',    title: '오늘의 케어 팁',      body: '외출 전 SPF 50+ 자외선 차단제를 잊지 마세요', is_read: true },
+      ];
 
   return (
     <div className="app">
       {showNav && (
         <header className="nav">
           <div className="nav-left">
-            <div onClick={() => go('dashboard')} style={{cursor:'pointer', display: 'flex', alignItems: 'center'}}>
+            <div onClick={() => go('dashboard')} style={{cursor:'pointer'}}>
               <Brand size={24} />
             </div>
             <nav className="nav-tabs">
-              <button className={"nav-tab " + (screen === 'dashboard'   ? 'active' : '')} onClick={() => go('dashboard')}>홈</button>
-              <button className={"nav-tab " + (screen === 'analyze'     ? 'active' : '')} onClick={() => go('analyze')}>분석</button>
-              <button className={"nav-tab " + (screen === 'results'     ? 'active' : '')} onClick={() => go('results')}>리포트</button>
-              <button className={"nav-tab " + (screen === 'treatment'   ? 'active' : '')} onClick={() => go('treatment')}>시술 추천</button>
-              <button className={"nav-tab " + (screen === 'innerbeauty' ? 'active' : '')} onClick={() => go('innerbeauty')}>이너뷰티</button>
+              <button className={"nav-tab " + (screen === 'dashboard' ? 'active' : '')} onClick={() => go('dashboard')}>홈</button>
+              <button className={"nav-tab " + (screen === 'analyze'   ? 'active' : '')} onClick={() => go('analyze')}>분석</button>
+              <button className={"nav-tab " + (screen === 'results'   ? 'active' : '')} onClick={() => go('results')}>리포트</button>
+              <button className={"nav-tab " + (screen === 'clinic'    ? 'active' : '')} onClick={() => go('clinic')}
+                style={{display:'flex', alignItems:'center', gap:5}}>
+                <Icon name="clinic" size={13}/>피부과 시술
+              </button>
+              <button className={"nav-tab " + (screen === 'diet'      ? 'active' : '')} onClick={() => go('diet')}
+                style={{display:'flex', alignItems:'center', gap:5}}>
+                <Icon name="leaf" size={13}/>식단
+              </button>
             </nav>
           </div>
           <div className="nav-right">
-            <div style={{position: 'relative'}}>
-              <button className="nav-tab" title="알림" onClick={handleOpenNotifications}>
+
+            {/* ── 알림 버튼 ── */}
+            <div className="dropdown-wrap" ref={bellRef}>
+              <button
+                className={"nav-tab nav-icon-btn " + (showBell ? 'active' : '')}
+                title="알림"
+                onClick={() => {
+                  setShowBell(v => !v);
+                  setShowSettings(false);
+                  // 열 때 읽음 처리
+                  if (!showBell && unreadCount > 0 && token) {
+                    setNotifications(prev => prev.map(n => ({...n, is_read: true})));
+                    fetch('/api/me/notifications/read', { method: 'PUT', headers: { Authorization: 'Bearer ' + token } }).catch(() => {});
+                  }
+                }}>
                 <Icon name="bell" size={16}/>
-                {unreadCount > 0 && <span style={{position:'absolute', top: 4, right: 4, width: 6, height: 6, background: 'var(--warn)', borderRadius: '50%'}}></span>}
+                {unreadCount > 0 && <span className="notif-dot"/>}
               </button>
-              {showNotifications && (
-                <div style={{
-                  position: 'absolute', top: '100%', right: 0, width: 300, background: 'var(--surface)', 
-                  border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                  zIndex: 100, padding: 12, maxHeight: 400, overflowY: 'auto'
-                }}>
-                  <div style={{fontWeight: 600, marginBottom: 12}}>알림 ({notifications.length})</div>
-                  {notifications.length === 0 ? (
-                    <div className="muted" style={{fontSize: 13, textAlign: 'center', padding: '20px 0'}}>새로운 알림이 없습니다.</div>
-                  ) : (
-                    notifications.map((n, i) => (
-                      <div key={n.id} style={{fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-2)', paddingBottom: 10, borderBottom: i === notifications.length - 1 ? 'none' : '1px solid var(--line-2)', position: 'relative', marginTop: i > 0 ? 10 : 0}}>
-                        <div style={{fontWeight: 600, color: 'var(--ink)', marginBottom: 2}}>{n.title}</div>
-                        <div>{n.message}</div>
-                        <button onClick={() => handleDeleteNotification(n.id)} style={{position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)'}}>✕</button>
-                      </div>
-                    ))
-                  )}
+              {showBell && (
+                <div className="dropdown dropdown-bell">
+                  <div className="dropdown-header" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div>
+                      <div style={{fontWeight:600, fontSize:13.5}}>알림</div>
+                      <div className="muted" style={{fontSize:11.5, marginTop:2}}>최근 활동 및 추천</div>
+                    </div>
+                  </div>
+                  {notifItems.map((n, i) => (
+                    <div key={n.id || i} style={{display:'flex', alignItems:'center', position:'relative'}}>
+                      <button className="dropdown-item" style={{flex:1}}
+                        onClick={() => { setShowBell(false); if (n.action) n.action(); }}>
+                        <span className="notif-icon">
+                          <Icon name={n.icon || (n.type === 'analysis' ? 'chart' : 'sparkle')} size={14}/>
+                        </span>
+                        <div style={{flex:1, textAlign:'left'}}>
+                          <div style={{fontSize:13, fontWeight: n.is_read ? 400 : 600, color:'var(--ink)'}}>{n.title}</div>
+                          <div style={{fontSize:11.5, color:'var(--ink-muted)', marginTop:2}}>{n.body || n.message}</div>
+                        </div>
+                      </button>
+                      {/* #18 삭제 버튼 — 삭제 후 재생성 방지 */}
+                      {notifications.length > 0 && (
+                        <button onClick={() => dismissNotification(n.id)}
+                          style={{padding:'4px 8px', background:'none', border:'none', cursor:'pointer',
+                                  color:'var(--ink-faint)', flexShrink:0, marginRight:4}}
+                          title="알림 삭제">
+                          <Icon name="cross" size={11}/>
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-            
-            <button className="nav-tab" title="설정" onClick={() => setShowSettings(!showSettings)}>
-              <Icon name="settings" size={16}/>
-            </button>
-            
-            <div style={{position: 'relative'}}>
-              <div className="avatar" title={user?.email || ''} onClick={() => setShowAvatarMenu(!showAvatarMenu)} style={{cursor:'pointer'}}>
-                {(user?.email?.[0] || '?').toUpperCase()}
+
+            {/* ── 설정 버튼 ── */}
+            <div className="dropdown-wrap" ref={settingsRef}>
+              <button
+                className={"nav-tab nav-icon-btn " + (showSettings ? 'active' : '')}
+                title="설정"
+                onClick={() => { setShowSettings(v => !v); setShowBell(false); }}>
+                <Icon name="settings" size={16}/>
+              </button>
+              {showSettings && (
+                <div className="dropdown" style={{minWidth:230}}>
+                  <div className="dropdown-header">
+                    <div style={{fontWeight:600, fontSize:13}}>설정</div>
+                  </div>
+
+                  {/* 대시보드 */}
+                  <button className="dropdown-item" onClick={() => { setShowSettings(false); go('dashboard'); }}>
+                    <Icon name="chart" size={15}/> 대시보드
+                  </button>
+
+                  <div className="dropdown-divider"/>
+
+                  {/* 다크모드 토글 */}
+                  <div className="dropdown-item" style={{justifyContent:'space-between', cursor:'default'}}>
+                    <div style={{display:'flex', alignItems:'center', gap:10}}>
+                      <Icon name="sparkle" size={15}/> 다크모드
+                    </div>
+                    <button onClick={() => setDarkMode(v => !v)} style={{
+                      width:38, height:20, borderRadius:10, border:'none', cursor:'pointer',
+                      background: darkMode ? 'var(--accent)' : 'var(--line)',
+                      position:'relative', transition:'background 0.2s', flexShrink:0,
+                    }}>
+                      <span style={{
+                        position:'absolute', top:2,
+                        left: darkMode ? 20 : 2,
+                        width:16, height:16, borderRadius:'50%',
+                        background:'white', transition:'left 0.2s', display:'block',
+                      }}/>
+                    </button>
+                  </div>
+
+                  {/* 글자 크기 */}
+                  <div style={{padding:'10px 16px 14px'}}>
+                    <div style={{fontSize:12, color:'var(--ink-muted)', marginBottom:8, display:'flex', alignItems:'center', gap:7}}>
+                      <Icon name="info" size={13}/> 전체 글자 크기
+                    </div>
+                    <div style={{display:'flex', gap:6}}>
+                      {[['sm','작게'],['md','보통'],['lg','크게']].map(([v,l]) => (
+                        <button key={v} onClick={() => setFontSize(v)} style={{
+                          flex:1, padding:'6px 0', borderRadius:8,
+                          border: '1.5px solid ' + (fontSize===v ? 'var(--accent)' : 'var(--line)'),
+                          background: fontSize===v ? 'var(--accent-soft)' : 'var(--surface)',
+                          color: fontSize===v ? 'var(--accent-ink)' : 'var(--ink-muted)',
+                          cursor:'pointer', fontSize:12, fontFamily:'var(--sans)', fontWeight:500,
+                        }}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── 아바타 (클릭: 마이페이지 · 로그아웃) ── */}
+            <div className="dropdown-wrap" ref={avatarRef}>
+              <div className="avatar" style={{cursor:'pointer'}}
+                title={user ? (user.nickname || user.username) : '미로그인'}
+                onClick={() => { setShowAvatarMenu(v => !v); setShowSettings(false); setShowBell(false); }}>
+                {((user && (user.nickname || user.username) && (user.nickname || user.username)[0]) || '?').toUpperCase()}
               </div>
-              {showAvatarMenu && (
-                <div style={{
-                  position: 'absolute', top: '100%', right: 0, width: 140, background: 'var(--surface)',
-                  border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                  zIndex: 100, padding: 8, display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4
-                }}>
-                  <button className="btn btn-ghost" style={{justifyContent: 'flex-start', fontSize: 13, padding: '8px 12px', height: 'auto'}} onClick={() => {setShowAvatarMenu(false); go('mypage')}}>마이페이지</button>
-                  <button className="btn btn-ghost" style={{justifyContent: 'flex-start', fontSize: 13, padding: '8px 12px', height: 'auto', color: 'var(--warn)'}} onClick={() => {setShowAvatarMenu(false); handleLogout();}}>로그아웃</button>
+              {showAvatarMenu && user && (
+                <div className="dropdown" style={{right:0, minWidth:160}}>
+                  <button className="dropdown-item" onClick={() => { setShowAvatarMenu(false); go('mypage'); }}>
+                    <Icon name="user" size={15}/> 마이페이지
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowAvatarMenu(false); handleLogout(); }}>
+                    <Icon name="arrowLeft" size={15}/> 로그아웃
+                  </button>
                 </div>
               )}
             </div>
+
           </div>
         </header>
       )}
 
-      {/* 설정 모달 */}
-      {showSettings && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', zIndex: 9999,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          <div style={{
-            background: 'var(--surface)', width: '90%', maxWidth: 400, borderRadius: 16,
-            padding: 24, boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
-          }}>
-            <h2 style={{margin: '0 0 20px', fontSize: 18}}>앱 설정</h2>
-            <div style={{display: 'flex', flexDirection: 'column', gap: 16}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <div>
-                  <div style={{fontWeight: 500}}>다크 모드</div>
-                  <div className="muted" style={{fontSize: 12}}>어두운 테마를 사용합니다.</div>
-                </div>
-                <input type="checkbox" checked={settings.darkMode} onChange={e => setSettings({...settings, darkMode: e.target.checked})} />
-              </div>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <div>
-                  <div style={{fontWeight: 500}}>알림 수신</div>
-                  <div className="muted" style={{fontSize: 12}}>푸시 알림 및 리마인더를 받습니다.</div>
-                </div>
-                <input type="checkbox" checked={settings.pushEnabled} onChange={e => handlePushToggle(e.target.checked)} />
-              </div>
-              <div>
-                <div style={{fontWeight: 500, marginBottom: 8}}>글씨 크기</div>
-                <select className="input" value={settings.fontSize} onChange={e => setSettings({...settings, fontSize: e.target.value})} style={{width: '100%'}}>
-                  <option value="작게">작게</option>
-                  <option value="보통">보통</option>
-                  <option value="크게">크게</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{marginTop: 24, textAlign: 'right', display: 'flex', gap: 12, justifyContent: 'flex-end'}}>
-              <button className="btn btn-outline" onClick={() => setShowSettings(false)}>취소</button>
-              <button className="btn btn-primary" onClick={() => handleSaveSettings(null)}>저장</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {screen === 'login' && (
-        <LoginScreen onLogin={handleLogin} />
-      )}
+      {screen === 'login' && <LoginScreen onLogin={handleLogin} />}
       {screen === 'dashboard' && (
         <Dashboard
           onStart={() => go('analyze')}
           onViewReport={() => go('results')}
           onViewHistoryItem={(data) => { setAnalysisData(data); go('results'); }}
-          onRefreshHistory={() => fetchHistory()}
           analysisData={analysisData}
           historyList={historyList}
+          onDeleteHistory={handleDeleteHistory}
+          user={user}
         />
       )}
       {screen === 'analyze' && (
-        <Analyze 
+        <Analyze
           onComplete={handleAnalysisComplete}
-          onBack={() => go('dashboard')} 
+          onBack={() => go('dashboard')}
           authHeaders={authHeaders()}
         />
       )}
@@ -388,32 +407,34 @@ const App = () => {
           data={analysisData}
           onRestart={() => go('analyze')}
           onHome={() => go('dashboard')}
-          onNavigate={(s) => go(s)}
+          onGoClinic={() => go('clinic')}
         />
       )}
-      {screen === 'treatment' && (
-        <Treatment
-          data={analysisData}
-          user={user}
-          onHome={() => go('dashboard')}
+      {screen === 'clinic' && (
+        <Clinic
+          analysisData={analysisData}
+          onGoAnalyze={() => go('analyze')}
+          authHeaders={authHeaders()}
         />
       )}
-      {screen === 'innerbeauty' && (
-        <InnerBeauty 
-          data={analysisData}
-          user={user}
-          token={token}
-          onHome={() => go('dashboard')}
+      {screen === 'diet' && (
+        <Diet
+          analysisData={analysisData}
+          onGoAnalyze={() => go('analyze')}
+          authHeaders={authHeaders()}
         />
       )}
       {screen === 'mypage' && (
-        <MyPageScreen
-          userInfo={user}
+        <Mypage
+          user={user}
+          token={token}
           historyList={historyList}
-          onViewHistoryItem={(data) => { setAnalysisData(data); go('results'); }}
-          onViewReport={() => go('results')}
-          onRefreshHistory={() => fetchHistory()}
-          onWithdrawal={handleWithdrawal}
+          onGoAnalyze={() => go('analyze')}
+          onGoResults={(data) => { setAnalysisData(data); go('results'); }}
+          onLogout={handleLogout}
+          onDeleteAccount={handleDeleteAccount}
+          authHeaders={authHeaders()}
+          onUpdateUser={handleUpdateUser}
         />
       )}
     </div>

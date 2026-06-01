@@ -37,6 +37,10 @@ const Clinic = ({ analysisData, onGoAnalyze, authHeaders }) => {
   const [loading, setLoading] = React.useState(false);
   const [result, setResult]   = React.useState(null);
   const [error, setError]     = React.useState('');
+  // #35/#36 면책 동의 모달 — 세션 내 최초 진입 시 1회만 표시
+  const [showDisclaimer, setShowDisclaimer] = React.useState(
+    !sessionStorage.getItem('clinic_agreed')
+  );
 
   const hasReport = !!(analysisData && analysisData.attributes);
 
@@ -71,6 +75,43 @@ const Clinic = ({ analysisData, onGoAnalyze, authHeaders }) => {
       setLoading(false);
     }
   };
+
+  // #36 면책 모달 렌더링
+  if (showDisclaimer) {
+    return (
+      <div style={{
+        position:'fixed', inset:0, background:'rgba(24,20,18,0.55)',
+        display:'flex', alignItems:'center', justifyContent:'center', zIndex:300,
+      }}>
+        <div className="card" style={{maxWidth:480, width:'90%', padding:32}}>
+          <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:16}}>
+            <Icon name="info" size={20} stroke={1.5}/>
+            <h2 className="h2-serif" style={{margin:0}}>시술 정보 안내</h2>
+          </div>
+          <div style={{fontSize:13.5, color:'var(--ink-2)', lineHeight:1.8, marginBottom:20}}>
+            본 서비스의 피부과 시술 추천은 <strong>정보 제공 목적</strong>으로만 제공됩니다.
+            의료법상 진단·처방 행위가 아니며, AI가 일반적인 시술 정보를 안내합니다.
+            시술 여부와 적합성은 <strong>반드시 전문 피부과 의사와 상담</strong> 후 결정하시기 바랍니다.
+          </div>
+          <label style={{display:'flex', alignItems:'center', gap:10, cursor:'pointer', marginBottom:20}}>
+            <input type="checkbox" id="clinic_agree_check" style={{width:16, height:16, accentColor:'var(--accent)'}}/>
+            <span style={{fontSize:13, color:'var(--ink-2)'}}>위 내용을 이해했으며, 참고 목적으로만 활용합니다.</span>
+          </label>
+          <div style={{display:'flex', gap:10, justifyContent:'flex-end'}}>
+            <button className="btn btn-ghost" onClick={() => window.history.back()}>뒤로가기</button>
+            <button className="btn btn-primary" onClick={() => {
+              const cb = document.getElementById('clinic_agree_check');
+              if (!cb || !cb.checked) { alert('동의 체크박스를 선택해주세요.'); return; }
+              sessionStorage.setItem('clinic_agreed', '1');
+              setShowDisclaimer(false);
+            }}>
+              동의하고 계속하기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page" data-screen-label="05 Clinic">
@@ -319,19 +360,19 @@ const Clinic = ({ analysisData, onGoAnalyze, authHeaders }) => {
           {result.summary && (
             <div className="card" style={{
               padding:26, marginBottom:16,
-              background:'linear-gradient(160deg, #1A2A3E, #2B4570)',
+              background:'linear-gradient(160deg,var(--surface-2),var(--surface))',
             }}>
               <div style={{
                 display:'inline-flex', alignItems:'center', gap:6,
                 padding:'3px 12px', borderRadius:20,
-                background:'rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.75)',
+                background:'var(--accent-soft)', color:'var(--accent-ink)',
                 fontSize:11, marginBottom:14,
               }}>
                 <Icon name="sparkle" size={11}/> Claude AI 종합 소견
               </div>
               <div style={{
                 fontFamily:'var(--serif-ko)', fontSize:16.5,
-                lineHeight:1.85, color:'rgba(255,255,255,0.9)',
+                lineHeight:1.85, color:'var(--ink)',
               }}>
                 {result.summary}
               </div>

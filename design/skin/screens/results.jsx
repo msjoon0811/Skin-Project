@@ -1,66 +1,22 @@
+// 식약처 제품명 자동 띄어쓰기 (하이픈 정규화 + 제품 키워드 분리)
+const formatProductName = (name) => {
+  if (!name) return '';
+  let r = name.replace(/-/g, ' ').replace(/·/g, ' ');
+  const kws = [
+    '화이트닝','브라이트닝','리프팅','주름개선','탄력','미백','진정','수분',
+    '모공수축','모공','수축','필링','클렌징','트리트먼트','재생','안티에이징',
+    '앰플','에센스','세럼','크림','토너','로션','마스크','스크럽','패드',
+    '쿠션','미스트','오일','젤','밤','스틱','선크림','아이크림','팩','폼',
+  ].sort((a, b) => b.length - a.length);
+  kws.forEach(kw => {
+    r = r.replace(new RegExp('([가-힣])(' + kw + ')', 'g'), '$1 $2');
+  });
+  return r.trim().replace(/\s+/g, ' ');
+};
+
 // Results: 실제 API 데이터 표시 (없으면 mock 데이터 fallback)
-
-const Results = ({ data, onRestart, onHome, onNavigate }) => {
-  const [wishlist, setWishlist] = React.useState([]);
-
-  React.useEffect(() => {
-    const fetchWishlist = async () => {
-      try {
-        const token = localStorage.getItem('skin_token');
-        if (!token) return;
-        const res = await fetch('/api/me/wishlist', { headers: { Authorization: 'Bearer ' + token } });
-        if (res.ok) {
-          setWishlist(await res.json());
-        }
-      } catch(e) {}
-    };
-    fetchWishlist();
-  }, []);
-
-  const toggleWishlist = async (type, title, subtitle) => {
-    const existing = wishlist.find(w => w.item_type === type && w.title === title);
-    const token = localStorage.getItem('skin_token');
-    if (!token) { alert('로그인이 필요합니다.'); return; }
-    
-    if (existing) {
-      await fetch(`/api/me/wishlist/${existing.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-    } else {
-      await fetch('/api/me/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ item_type: type, title, subtitle })
-      });
-    }
-    // Optimistic update
-    if (existing) {
-      setWishlist(wishlist.filter(w => w.id !== existing.id));
-    } else {
-      // refetch to get real ID
-      const res = await fetch('/api/me/wishlist', { headers: { Authorization: 'Bearer ' + token } });
-      if (res.ok) setWishlist(await res.json());
-    }
-  };
-
-  const isWishlisted = (type, title) => wishlist.some(w => w.item_type === type && w.title === title);
-  if (!data) {
-    return (
-      <div className="page" style={{display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center', minHeight:'80vh', padding: 20}}>
-        <div style={{fontSize: 48, marginBottom: 16}}>📊</div>
-        <div className="h2-serif" style={{marginBottom: 8}}>분석 결과가 없습니다</div>
-        <div className="muted" style={{textAlign:'center', fontSize: 13, lineHeight: 1.5, marginBottom: 24}}>
-          아직 피부 분석을 진행하지 않으셨습니다.<br/>
-          홈에서 사진 분석을 먼저 시작해보세요!
-        </div>
-        <button className="btn btn-primary" onClick={onHome} style={{width: 200}}>
-          홈으로 돌아가기
-        </button>
-      </div>
-    );
-  }
-
-  const [foodPage, setFoodPage] = React.useState(0);
+const Results = ({ data, onRestart, onHome }) => {
   const today = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'·').replace('.','');
-
   // API 데이터 or mock fallback — data가 존재하면 API 결과를 그대로 사용(빈 배열 포함)
   const attrs       = data ? (data.attributes || ATTRIBUTES)            : ATTRIBUTES;
   const composite   = (data && data.composite_score != null) ? data.composite_score : 62;
@@ -70,15 +26,22 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
   const avoidIngs   = data ? (data.avoid_ingredients || [])             : AVOID_INGREDIENTS;
   const cautionIngs = data ? (data.caution_ingredients || [])           : [];
   const products    = data ? (data.products || [])                      : PRODUCTS;
-  const procedures  = data ? (data.procedures || [])                    : [];
-  const foods       = data ? (data.foods || [])                         : [];
   const mlAvailable = data ? data.ml_available : false;
+
 
   const radarValues = attrs.map(a => a.value);
   const radarLabels = attrs.map(a => a.short);
 
   return (
     <div className="page" data-screen-label="04 Results">
+      {/* 인쇄용 헤더 (화면에서는 숨김) */}
+      <div className="print-only">
+        <Brand size={22} />
+        <div style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--ink-muted)', marginTop:4, letterSpacing:'0.06em'}}>
+          SKIN ANALYSIS REPORT · {today}
+        </div>
+      </div>
+
       {/* 상단 배너 */}
       <div className="result-banner">
         <div>
@@ -98,8 +61,8 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
             <span className="pill">
               {mlAvailable ? '사진 분석 완료' : '설문 기반 분석'}
             </span>
-            <span className="pill">성분 DB 매칭 완료</span>
-            <span className="pill">제품 추천 완료</span>
+            <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>성분 DB 매칭 완료</span>
+            <span className="pill" style={{background:'rgba(255,255,255,0.7)'}}>제품 추천 완료</span>
           </div>
         </div>
         <div className="composite">
@@ -136,9 +99,8 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
                     <div className="name">{a.name}</div>
                     <div className="muted" style={{fontSize:11}}>{a.desc}</div>
                   </div>
-                  <span className="val">{a.value}</span>
-                  <span className={"tag tag-" + a.level}>
-                    {a.level === 'hi' ? 'HIGH' : a.level === 'lo' ? 'LOW' : 'MID'}
+                  <span className={"tag tag-" + a.level} style={{fontSize:13, padding:'3px 10px'}}>
+                    {a.level === 'hi' ? '높음' : a.level === 'lo' ? '낮음' : '중간'}
                   </span>
                 </div>
               ))}
@@ -163,7 +125,9 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
                     : 'linear-gradient(90deg, var(--bg-2), var(--ink-faint))'
                 }}/>
               </div>
-              <div className="val">{a.value}/100</div>
+              <span className={"tag tag-" + a.level} style={{minWidth:38, textAlign:'center', fontSize:12}}>
+                {a.level === 'hi' ? '높음' : a.level === 'lo' ? '낮음' : '중간'}
+              </span>
             </div>
           ))}
         </div>
@@ -188,10 +152,10 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
           ) : (
             <ul className="ing-list">
               {goodIngs.map((g, i) => (
-                <li key={i} className="ing-item">
-                  <span className="name">{g.name}</span>
-                  <span className="pill" style={{background:'var(--good-soft)', color:'var(--good)'}}>{g.tag}</span>
-                  <span className="why">→ {g.why}</span>
+                <li key={g.name || i} className="ing-item">
+                  <span className="name">{g.name || ''}</span>
+                  <span className="pill" style={{background:'var(--good-soft)', color:'var(--good)'}}>{g.tag || ''}</span>
+                  <span className="why">{g.why ? `→ ${g.why}` : ''}</span>
                 </li>
               ))}
             </ul>
@@ -206,10 +170,10 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
               <div className="muted" style={{fontSize:12.5}}>알러지 응답 + 민감도 점수 + MFDS 사용제한 원료</div>
               <ul className="ing-list">
                 {avoidIngs.map((g, i) => (
-                  <li key={i} className="ing-item">
-                    <span className="name">{g.name}</span>
-                    <span className="pill" style={{background:'var(--warn-soft)', color:'var(--warn)'}}>{g.tag}</span>
-                    <span className="why">→ {g.why}</span>
+                  <li key={g.name || i} className="ing-item">
+                    <span className="name">{g.name || ''}</span>
+                    <span className="pill" style={{background:'var(--warn-soft)', color:'var(--warn)'}}>{g.tag || ''}</span>
+                    <span className="why">{g.why ? `→ ${g.why}` : ''}</span>
                   </li>
                 ))}
               </ul>
@@ -221,10 +185,10 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
               <div className="muted" style={{fontSize:12.5}}>무조건 금지는 아니지만 현재 피부 상태에서 주의가 필요한 성분이에요</div>
               <ul className="ing-list">
                 {cautionIngs.map((g, i) => (
-                  <li key={i} className="ing-item">
-                    <span className="name">{g.name}</span>
-                    <span className="pill" style={{background:'var(--warn-soft)', color:'var(--warn)'}}>{g.tag}</span>
-                    <span className="why">→ {g.why}</span>
+                  <li key={g.name || i} className="ing-item">
+                    <span className="name">{g.name || ''}</span>
+                    <span className="pill" style={{background:'var(--warn-soft)', color:'var(--warn)'}}>{g.tag || ''}</span>
+                    <span className="why">{g.why ? `→ ${g.why}` : ''}</span>
                   </li>
                 ))}
               </ul>
@@ -272,92 +236,127 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
         return (
           <div className="products-grid">
             {products.map((p, i) => {
-              const r = parseReason(p.reason);
               const rc = rankColors[i] || rankColors[2];
+              const naverUrl = p.link || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent((p.brand||'') + ' ' + (p.name||''))}`;
+              const formattedName = formatProductName(p.name);
+              const displayPrice = p.price || null;
               return (
                 <div key={i} className="product-card">
-                  {/* 제품 썸네일 */}
+                  {/* 썸네일 */}
                   <div style={{
                     aspectRatio:'4/3', background: rc.bg,
-                    backgroundImage: `url('https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=400&q=80')`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    backgroundBlendMode: 'overlay',
                     position:'relative', display:'flex',
                     alignItems:'flex-end', padding:12,
-                    justifyContent:'space-between',
+                    justifyContent:'space-between', overflow:'hidden',
                   }}>
-                    {/* 순위 뱃지 */}
+                    {p.image && (
+                      <img src={p.image} alt={p.name}
+                        style={{position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover'}}
+                        onError={e => { e.target.style.display='none'; }}
+                      />
+                    )}
+                    {!p.image && <>
+                      <div style={{
+                        position:'absolute', right:-8, bottom:-20,
+                        fontSize:90, fontFamily:'var(--serif)',
+                        fontStyle:'italic', color:'rgba(255,255,255,0.18)',
+                        lineHeight:1, userSelect:'none', pointerEvents:'none',
+                      }}>
+                        {(p.name||p.brand||'S')[0]}
+                      </div>
+                      <div style={{
+                        position:'absolute', top:10, right:12,
+                        fontFamily:'var(--mono)', fontSize:9.5,
+                        letterSpacing:'0.1em', textTransform:'uppercase',
+                        color:'rgba(255,255,255,0.65)',
+                      }}>{(p.brand||'').slice(0,14)}</div>
+                    </>}
+                    <div style={{
+                      position:'absolute', inset:0,
+                      background: p.image ? 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' : 'none',
+                    }}/>
                     <span style={{
                       background: rc.badge, color:'white',
                       fontFamily:'var(--mono)', fontSize:10.5,
                       padding:'4px 10px', borderRadius:999,
-                      letterSpacing:'0.08em',
+                      letterSpacing:'0.08em', zIndex:1, position:'relative',
                     }}>
                       {['1ST', '2ND', '3RD'][i] || `${i+1}TH`}
                     </span>
-                    <span className="match">MATCH · {p.match}%</span>
+                    <span className="match" style={{zIndex:1, position:'relative',
+                      color: p.image ? 'rgba(255,255,255,0.9)' : undefined}}>
+                      MATCH · {p.match}%
+                    </span>
                   </div>
 
                   <div className="product-body">
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
-                      <div>
-                        <span className="product-brand">{p.brand || '식약처 기능성'}</span>
-                        <span className="product-name" style={{lineHeight:1.35, display: 'block'}}>{p.name}</span>
-                      </div>
-                      <button type="button" onClick={() => toggleWishlist('product', p.name, p.brand || '식약처 기능성')} style={{background:'none',border:'none',cursor:'pointer',padding:4,color: isWishlisted('product', p.name) ? '#e53935' : 'var(--accent)'}}>
-                        <Icon name={isWishlisted('product', p.name) ? 'heart-fill' : 'heart'} size={20} />
-                      </button>
-                    </div>
+                    <span className="product-brand">{p.brand || '식약처 기능성'}</span>
+                    <span className="product-name" style={{
+                      wordBreak:'keep-all', overflowWrap:'anywhere', lineHeight:1.45,
+                    }}>{formattedName}</span>
 
-                    {/* 고민 태그 */}
                     <div className="product-tags" style={{marginTop:6}}>
                       {(p.tags || []).map((t, j) => (
                         <span key={j} className={"product-tag " + (j === 0 ? 'green' : '')}>{t}</span>
                       ))}
                     </div>
 
-                    {/* 구조화된 설명 */}
-                    <div style={{marginTop:10, display:'flex', flexDirection:'column', gap:6}}>
-                      {r.rank && (
-                        <div style={{
-                          fontSize:11, fontFamily:'var(--mono)', color: rc.badge,
-                          letterSpacing:'0.06em',
-                        }}>{r.rank}</div>
-                      )}
-                      {r.ingredients && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--good-soft)',
-                          fontSize:12, color:'var(--good)', lineHeight:1.5,
-                        }}>
-                          <strong>핵심 성분</strong><br/>{r.ingredients}
-                        </div>
-                      )}
-                      {r.avoid && !r.avoid.startsWith('사용법') && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--warn-soft)',
-                          fontSize:12, color:'var(--warn)', lineHeight:1.5,
-                        }}>
-                          <strong>주의 성분 확인</strong><br/>{r.avoid}
-                        </div>
-                      )}
-                      {(p.usage || r.usage) && (
-                        <div style={{
-                          padding:'8px 10px', borderRadius:8,
-                          background:'var(--surface-2)',
-                          borderLeft:'2px solid var(--accent)',
-                          fontSize:12, color:'var(--ink-2)', lineHeight:1.5,
-                        }}>
-                          <strong>💡 사용법</strong><br/>{p.usage || r.usage.replace('사용법: ','')}
-                        </div>
-                      )}
-                    </div>
+                    {/* 추천 이유 */}
+                    {p.reason && (
+                      <div style={{marginTop:10, fontFamily:'var(--serif-ko)', fontSize:13.5, lineHeight:1.75, color:'var(--ink-2)'}}>
+                        {p.reason}
+                      </div>
+                    )}
 
-                    <div className="product-foot" style={{marginTop:'auto', paddingTop:12}}>
-                      <span className="product-price">{p.price || '가격 문의'}</span>
-                      <button className="btn btn-outline btn-sm">자세히 <Icon name="arrowRight" size={12}/></button>
+                    {/* 핵심 성분 */}
+                    {p.key_ingredient && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--good-soft)',
+                        display:'flex', alignItems:'flex-start', gap:8,
+                      }}>
+                        <Icon name="leaf" size={13} style={{flexShrink:0, marginTop:2, color:'var(--good)'}}/>
+                        <div>
+                          <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--good)', letterSpacing:'0.06em', marginBottom:3}}>이 피부에 맞는 성분</div>
+                          <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--good)', lineHeight:1.6}}>{p.key_ingredient}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 제품 설명 */}
+                    {p.description && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--surface)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--ink-muted)', letterSpacing:'0.06em', marginBottom:3}}>제품 설명</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{p.description}</div>
+                      </div>
+                    )}
+
+                    {/* 사용법 */}
+                    {p.how_to_use && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--surface)', borderLeft:'3px solid var(--accent)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--accent-ink)', letterSpacing:'0.06em', marginBottom:3}}>사용법</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{p.how_to_use}</div>
+                      </div>
+                    )}
+
+                    {/* 가격 + 구매 버튼 */}
+                    <div className="product-foot" style={{marginTop:'auto', paddingTop:14}}>
+                      {displayPrice && (
+                        <span style={{fontFamily:'var(--mono)', fontSize:15, fontWeight:700, color:'var(--ink)'}}>
+                          {displayPrice}
+                        </span>
+                      )}
+                      <a href={naverUrl} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                        style={{textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6}}>
+                        <Icon name="arrowRight" size={13}/> 구매하러 가기
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -367,153 +366,10 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
         );
       })()}
 
-      {/* MODULE 04: 피부과 시술 추천 — Teaser */}
+      {/* MODULE 04: 추천 사유 */}
       <div className="section-head" style={{marginTop: 32}}>
         <div>
-          <div className="eyebrow">MODULE 04 · 시술 매칭</div>
-          <h2 className="h2-serif" style={{margin:'4px 0 0'}}>추천 피부과 시술</h2>
-        </div>
-      </div>
-
-      {procedures.length === 0 ? (
-        <div className="card" style={{padding:28, textAlign:'center', color:'var(--ink-muted)'}}>
-          현재 피부 상태에 추천되는 시술이 없거나 분석 후 확인 가능합니다.
-        </div>
-      ) : (() => {
-        const top = procedures[0];
-        const concerns = top.target_concerns || top.match_reasons || [];
-        return (
-          <div className="card" style={{padding: 22, borderLeft: '4px solid var(--accent)'}}>
-            {/* BEST MATCH 뱃지 */}
-            <div style={{display:'flex', gap: 6, marginBottom: 10, alignItems:'center'}}>
-              <span style={{
-                background:'var(--gold)', color:'#fff',
-                fontSize: 10.5, padding: '2px 8px', borderRadius: 20, fontWeight: 700,
-              }}>🏆 BEST MATCH</span>
-              <span className="pill" style={{
-                background:'var(--accent-soft)', color:'var(--accent-ink)', fontSize: 11,
-              }}>{top.category}</span>
-            </div>
-
-            {/* 시술명 + 핵심 효과 */}
-            <div style={{
-              fontFamily:'var(--serif-ko)', fontSize: 20, fontWeight: 600,
-              color:'var(--ink)', marginBottom: 6,
-            }}>{top.name}</div>
-
-            {concerns.length > 0 && (
-              <div style={{fontSize: 13, color:'var(--ink-2)', lineHeight: 1.6, marginBottom: 12}}>
-                ✨ <strong style={{color:'var(--accent-ink)'}}>{concerns.join(' · ')}</strong> 개선에 적합한 시술로 분석됩니다.
-              </div>
-            )}
-
-            {/* 가격 + 회복기간 요약 */}
-            <div style={{display:'flex', gap: 16, marginBottom: 16}}>
-              {top.price_bracket && (
-                <div style={{fontSize: 12, color:'var(--ink-muted)'}}>
-                  💰 <strong style={{color:'var(--ink)'}}>{top.price_bracket}</strong>
-                </div>
-              )}
-              {top.downtime && (
-                <div style={{fontSize: 12, color:'var(--ink-muted)'}}>
-                  ⏱️ <strong style={{color:'var(--ink)'}}>{top.downtime}</strong>
-                </div>
-              )}
-            </div>
-
-            {/* CTA 버튼 */}
-            <button
-              className="btn btn-primary"
-              style={{width:'100%', gap: 6}}
-              onClick={() => onNavigate && onNavigate('treatment')}
-            >
-              나에게 맞는 시술 {procedures.length}개 전체보기 →
-            </button>
-          </div>
-        );
-      })()}
-
-
-      {/* MODULE 05: 이너뷰티 음식 추천 */}
-      <div className="section-head" style={{marginTop: 32}}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', width:'100%'}}>
-          <div>
-            <div className="eyebrow">MODULE 05 · 이너뷰티</div>
-            <h2 className="h2-serif" style={{margin:'4px 0 0'}}>오늘의 피부 맞춤 음식 🥗</h2>
-            <div className="muted" style={{fontSize:12.5, marginTop: 4}}>피부 속성 기반 · 매일 업데이트</div>
-          </div>
-          {foods.length > 2 && (
-            <button className="btn btn-outline btn-sm" style={{height:32, padding:'0 12px'}} onClick={() => setFoodPage(p => (p+1)*2 >= foods.length ? 0 : p+1)}>
-              다른 음식 보기
-            </button>
-          )}
-        </div>
-      </div>
-
-      {foods.length === 0 ? (
-        <div className="card" style={{padding:28, textAlign:'center', color:'var(--ink-muted)'}}>
-          음식 추천 데이터를 불러오는 중이거나 현재 조건에 맞는 식재료가 없습니다.
-        </div>
-      ) : (() => {
-        const displayFoods = foods.slice(foodPage * 2, foodPage * 2 + 2);
-        return (
-          <div style={{display:'grid', gridTemplateColumns: `repeat(${displayFoods.length}, 1fr)`, gap:16}}>
-            {displayFoods.map((food, i) => (
-              <div key={i} className={`card ${i === 0 ? 'food-card-1st' : 'food-card-2nd'}`} style={{
-                padding:24,
-                border: 'none',
-              }}>
-                <div className="eyebrow" style={{
-                  color: i === 0 ? 'var(--accent-ink)' : 'var(--good)',
-                  marginBottom: 8,
-                }}>
-                  {i === 0 ? '1ST PICK' : '2ND PICK'}
-                </div>
-                <div style={{
-                  fontFamily:'var(--serif-ko)',
-                  fontSize: 22,
-                  fontWeight: 600,
-                  color:'var(--ink)',
-                  marginBottom: 6,
-                }}>
-                  {food.food_name}
-                </div>
-              <div className="food-tag" style={{
-                display:'inline-block',
-                padding:'3px 10px',
-                borderRadius:999,
-                fontSize:11.5,
-                fontFamily:'var(--mono)',
-                marginBottom:12,
-              }}>
-                {food.key_nutrients}
-              </div>
-              <div style={{
-                fontSize:13,
-                color:'var(--ink-2)',
-                lineHeight:1.65,
-                padding:'10px 12px',
-                background:'rgba(255,255,255,0.55)',
-                borderRadius:10,
-              }}>
-                {food.reason}
-              </div>
-            </div>
-            ))}
-          </div>
-        );
-      })()}
-      
-      <div style={{marginTop: 16, display: 'flex', justifyContent: 'flex-end'}}>
-        <button className="btn btn-outline btn-sm" onClick={() => onNavigate && onNavigate('innerbeauty')} style={{fontSize: 13, height: 32}}>
-          자세히
-        </button>
-      </div>
-
-      {/* MODULE 06: 추천 사유 */}
-      <div className="section-head" style={{marginTop: 32}}>
-        <div>
-          <div className="eyebrow">MODULE 06 · 분석 요약</div>
+          <div className="eyebrow">MODULE 04 · 분석 요약</div>
           <h2 className="h2-serif" style={{margin:'4px 0 0'}}>맞춤 추천 요약</h2>
         </div>
       </div>
@@ -596,8 +452,8 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
             return (
               <div>
                 <div style={{fontFamily:'var(--serif-ko)', fontSize:17, lineHeight:1.8, color:'var(--ink)', maxWidth:820}}>
-                  {dry && <span>수분 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{dry.value}%</span></span>}
-                  {sens && <span>, 민감도 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{sens.value}%</span></span>}
+                  {dry && <span>수분 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{dry.level === 'hi' ? '충분' : dry.level === 'lo' ? '부족' : '보통'}</span></span>}
+                  {sens && <span>, 민감도 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{sens.level === 'hi' ? '높음' : sens.level === 'lo' ? '낮음' : '보통'}</span></span>}
                   {rec1 && rec2 && <span> — <span style={{borderBottom:'2px solid var(--accent)'}}>{rec1.name} + {rec2.name}</span> 조합을 우선 시도해보세요.</span>}
                   {!rec1 && <span> — 피부 고민을 선택하면 더 정확한 성분을 추천해드릴 수 있어요.</span>}
                 </div>
@@ -611,7 +467,7 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
       )}
 
       {/* 하단 액션 */}
-      <div style={{
+      <div className="no-print" style={{
         display:'flex', justifyContent:'space-between', alignItems:'center',
         marginTop:32, paddingTop:24, borderTop:'1px solid var(--line-2)',
       }}>
@@ -621,12 +477,9 @@ const Results = ({ data, onRestart, onHome, onNavigate }) => {
         </div>
         <div style={{display:'flex', gap:8}}>
           <button className="btn btn-ghost" onClick={onHome}>대시보드로</button>
-          <button className="btn btn-outline" onClick={() => {
-            const prev = document.title;
-            document.title = `피부 분석 리포트 ${new Date().toLocaleDateString('ko-KR')}`;
-            window.print();
-            document.title = prev;
-          }}>📄 PDF 저장</button>
+          <button className="btn btn-outline" onClick={() => window.print()}>
+            <Icon name="upload" size={14}/> PDF 저장
+          </button>
           <button className="btn btn-primary" onClick={onRestart}>
             <Icon name="sparkle" size={14} /> 새 분석 시작
           </button>

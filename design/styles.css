@@ -29,31 +29,6 @@
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-body.dark-mode {
-  --bg: #1A1A1A;
-  --bg-2: #242424;
-  --surface: #2A2A2A;
-  --surface-2: #333333;
-  --ink: #FFFFFF;
-  --ink-2: #E0E0E0;
-  --ink-muted: #A0A0A0;
-  --ink-faint: #7A7A7A;
-  --line: #404040;
-  --line-2: #4A4A4A;
-  --accent: #E58370;
-  --accent-ink: #FFA796;
-  --accent-soft: #422620;
-  --good: #80A175;
-  --good-soft: #273623;
-  --warn: #D87556;
-  --warn-soft: #4D261A;
-  --gold: #D6A44B;
-  color-scheme: dark;
-}
-
-body.font-small { zoom: 0.9; }
-body.font-large { zoom: 1.1; }
-
 *{ box-sizing: border-box; }
 html, body{ margin:0; padding:0; }
 body{
@@ -80,8 +55,7 @@ input, textarea, select{ font-family: inherit; color: inherit; }
   position: sticky; top:0; z-index: 20;
   display:flex; align-items:center; justify-content:space-between;
   padding: 14px 28px;
-  background: var(--bg);
-  opacity: 0.95;
+  background: rgba(246,241,232,0.86);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
@@ -151,12 +125,6 @@ input, textarea, select{ font-family: inherit; color: inherit; }
 .btn-ghost:hover{ background: var(--bg-2); }
 .btn-outline{ background: transparent; color: var(--ink); border: 1px solid var(--line); }
 .btn-outline:hover{ border-color: var(--ink); }
-
-/* Dark mode button fixes */
-body.dark-mode .btn-primary{ background: #FFFFFF; color: #181412; }
-body.dark-mode .btn-primary:hover{ background: #E0E0E0; }
-body.dark-mode .btn-ghost:hover{ background: var(--surface-2); }
-body.dark-mode .btn-outline:hover{ border-color: var(--ink-2); }
 .btn-lg{ padding: 16px 24px; font-size: 15px; }
 .btn-sm{ padding: 8px 14px; font-size: 12.5px; }
 .btn:disabled{ opacity: .4; cursor: not-allowed; transform: none; }
@@ -180,11 +148,6 @@ body.dark-mode .btn-outline:hover{ border-color: var(--ink-2); }
 }
 .input:focus{ border-color: var(--ink); box-shadow: 0 0 0 3px rgba(24,20,18,0.06); }
 .input::placeholder{ color: var(--ink-faint); }
-
-/* Dark mode input/select fixes */
-body.dark-mode .input{ background: var(--surface-2); border-color: var(--line); color: var(--ink); }
-body.dark-mode .input:focus{ border-color: var(--ink-2); box-shadow: 0 0 0 3px rgba(255,255,255,0.08); }
-body.dark-mode select.input, body.dark-mode select{ background: var(--surface-2); color: var(--ink); border-color: var(--line); }
 
 .chip-group{ display:flex; flex-wrap: wrap; gap: 8px; }
 .chip{
@@ -727,24 +690,9 @@ body.dark-mode select.input, body.dark-mode select{ background: var(--surface-2)
 .pill{
   font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 4px 9px; border-radius: 999px;
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.6); color: var(--ink-2);
+  border: 1px solid rgba(40,22,12,0.08);
 }
-body.dark-mode .pill{
-  background: var(--surface-2); color: var(--ink);
-  border-color: var(--line);
-}
-
-/* Food cards (results.jsx) */
-.food-card-1st{ background: linear-gradient(160deg, #F3EDDE, #EAE0CC); }
-.food-card-2nd{ background: linear-gradient(160deg, #E8F0E3, #D8E8D0); }
-.food-card-1st .food-tag{ background: rgba(92,43,23,0.08); color: var(--accent-ink); }
-.food-card-2nd .food-tag{ background: rgba(91,117,83,0.1); color: var(--good); }
-
-body.dark-mode .food-card-1st{ background: linear-gradient(160deg, #3A2E26, #2F251E); }
-body.dark-mode .food-card-2nd{ background: linear-gradient(160deg, #283623, #1F2E19); }
-body.dark-mode .food-card-1st .food-tag{ background: rgba(255,255,255,0.15); color: var(--accent-ink); }
-body.dark-mode .food-card-2nd .food-tag{ background: rgba(255,255,255,0.15); color: var(--good); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1024px){
@@ -758,39 +706,226 @@ body.dark-mode .food-card-2nd .food-tag{ background: rgba(255,255,255,0.15); col
   .fields-2, .fields-3{ grid-template-columns: 1fr; }
 }
 
-/* ── PDF / 인쇄 스타일 ───────────────────────────────────────────────── */
-@media print {
-  /* 내비게이션, 버튼, 불필요 요소 숨기기 */
-  header, nav, .nav-bar, .sticky-nav,
-  .btn, button,
-  [data-screen-label]:not([data-screen-label*="Results"]) {
-    display: none !important;
-  }
+/* ---------- Dark Mode ---------- */
+body.dark{
+  --bg:          #1C1917;
+  --bg-2:        #24211E;
+  --surface:     #2A2724;
+  --surface-2:   #302D2A;
+  --ink:         #F0EAE2;
+  --ink-2:       #C8BFB5;
+  --ink-muted:   #8A8078;
+  --ink-faint:   #5A5450;
+  --line:        #3A3530;
+  --line-2:      #302D2A;
+  --accent-soft: #3A1E15;
+  --accent-ink:  #E8896E;
+  --good-soft:   #1A2818;
+  --warn-soft:   #2A1510;
+  color-scheme: dark;
+}
 
-  /* 배경색·그림자 제거 (잉크 절약 + 깔끔한 출력) */
-  body, :root {
-    background: white !important;
-    color: black !important;
-  }
-  .card, .result-card, .product-card, .ing-card {
-    box-shadow: none !important;
-    border: 1px solid #ddd !important;
-    break-inside: avoid;
-  }
+/* ── 하드코딩된 어두운 텍스트 색상 덮어쓰기 ── */
+body.dark .hero-main .heading  { color: var(--ink) !important; }
+body.dark .hero-main .overline { color: var(--ink-muted) !important; }
+body.dark .login-art .brand    { color: var(--ink) !important; }
+body.dark .login-art-foot      { color: rgba(240,235,228,0.85) !important; }
+body.dark .login-art-foot .small { color: rgba(240,235,228,0.55) !important; }
+body.dark .score-big           { color: var(--ink); }
 
-  /* 전체 너비 사용 */
-  .page, .results-grid {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
+/* ── 그라디언트 배경 섹션 다크 전환 ── */
+body.dark .hero-main {
+  background:
+    radial-gradient(80% 60% at 80% 30%, rgba(201,98,74,0.18) 0%, transparent 60%),
+    radial-gradient(60% 50% at 15% 90%, rgba(160,110,70,0.12) 0%, transparent 55%),
+    linear-gradient(160deg, #282018, #201610) !important;
+}
+body.dark .result-banner {
+  background:
+    radial-gradient(60% 80% at 90% 50%, rgba(201,98,74,0.12) 0%, transparent 60%),
+    linear-gradient(120deg, #242018, #1E1A12) !important;
+}
+body.dark .login-art {
+  background:
+    radial-gradient(120% 80% at 80% 20%, rgba(201,98,74,0.25) 0%, transparent 55%),
+    radial-gradient(80% 60% at 10% 90%, rgba(160,110,70,0.15) 0%, transparent 55%),
+    linear-gradient(160deg, #261E18, #1C140E) !important;
+}
+body.dark .cam-frame {
+  background:
+    radial-gradient(80% 60% at 50% 30%, rgba(201,98,74,0.15) 0%, transparent 65%),
+    linear-gradient(160deg, #282018, #1C140E) !important;
+}
+body.dark .loading-ring {
+  background: conic-gradient(from 0deg, var(--accent), #3A2520, var(--accent)) !important;
+}
 
-  /* 각 섹션이 새 페이지로 넘어가지 않도록 */
-  .section-head, .ingredient-block, .products-grid {
-    break-inside: avoid;
-  }
+/* ── 카드·패널 ── */
+body.dark .card        { background: var(--surface);   border-color: var(--line-2); }
+body.dark .card-flat   { background: var(--surface-2); border-color: var(--line-2); }
+body.dark .panel       { background: var(--surface);   border-color: var(--line); }
+body.dark .attribute-card { background: var(--surface); border-color: var(--line); }
+body.dark .ing-card    { border-color: var(--line); }
+body.dark .ing-card.good { background: linear-gradient(180deg, #1A2818, var(--surface) 55%); }
+body.dark .ing-card.avoid{ background: linear-gradient(180deg, #2A1510, var(--surface) 55%); }
+body.dark .product-card { border-color: var(--line); background: var(--surface); }
 
-  /* CSS 변수 폴백 (인쇄 시 일부 브라우저 미지원 대비) */
-  .eyebrow { color: #888 !important; }
-  .h2-serif { color: #111 !important; }
+/* ── 입력 ── */
+body.dark .input { background: var(--surface); color: var(--ink); border-color: var(--line); }
+body.dark .input::placeholder { color: var(--ink-faint); }
+
+/* ── 버튼 ── */
+body.dark .btn-primary        { background: #DED6CE; color: #1C1917; }
+body.dark .btn-primary:hover  { background: #ECE4DC; }
+body.dark .btn-outline        { border-color: var(--line); color: var(--ink-2); }
+body.dark .btn-outline:hover  { border-color: var(--ink-muted); }
+body.dark .btn-ghost          { color: var(--ink-2); }
+body.dark .btn-ghost:hover    { background: var(--bg-2); }
+
+/* ── 내비게이션 ── */
+body.dark .nav            { background: rgba(28,25,23,0.92); border-color: var(--line); }
+body.dark .nav-tab        { color: var(--ink-muted); }
+body.dark .nav-tab:hover  { background: var(--bg-2); color: var(--ink); }
+body.dark .nav-tab.active { background: var(--surface); color: var(--ink); box-shadow: none; }
+
+/* ── 식단 배너 (diet-banner) ── */
+.diet-banner {
+  background:
+    radial-gradient(80% 60% at 85% 30%, #C8E8B0 0%, transparent 55%),
+    linear-gradient(120deg, #E8F2DE, #C5D9AD);
+}
+body.dark .diet-banner {
+  background:
+    radial-gradient(80% 60% at 85% 30%, rgba(91,117,83,0.25) 0%, transparent 55%),
+    linear-gradient(120deg, #1A2818, #141E10) !important;
+}
+
+/* ── 배너 안 텍스트 다크 보강 ── */
+body.dark .result-banner .eyebrow { color: var(--ink-muted) !important; }
+body.dark .result-banner .muted   { color: var(--ink-muted) !important; }
+body.dark .result-banner .skin-type { color: var(--ink) !important; }
+body.dark .result-banner .skin-type em { color: var(--accent-ink) !important; }
+
+/* ── 칩·필 (!important로 인라인 스타일 강제 override) ── */
+body.dark .pill { background: rgba(255,255,255,0.08) !important; color: var(--ink-2) !important; border-color: rgba(255,255,255,0.1) !important; }
+body.dark .chip { background: var(--surface); border-color: var(--line); color: var(--ink-2); }
+body.dark .chip.selected { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+body.dark .chip.tone.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+
+/* ── 히스토리 ── */
+body.dark .history-row { background: var(--surface-2); border-color: var(--line-2); }
+
+/* ── 게이지 바 ── */
+body.dark .bar-track { background: var(--bg-2); }
+
+/* ── 드롭다운 ── */
+body.dark .dropdown        { background: var(--surface-2); border-color: var(--line); }
+body.dark .dropdown-header { background: var(--surface); }
+body.dark .dropdown-item   { color: var(--ink-2); }
+body.dark .dropdown-item:hover { background: var(--bg-2); }
+
+/* ── 세그먼트 컨트롤 ── */
+body.dark .seg                   { background: var(--bg-2); border-color: var(--line); }
+body.dark .seg button.active     { background: var(--surface); color: var(--ink); }
+
+/* ── 분석 스텝 ── */
+body.dark .step .num  { background: var(--surface); border-color: var(--line); }
+body.dark .step:hover { background: var(--bg-2); }
+body.dark .step.active .num { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+body.dark .step.done  .num  { background: var(--good); }
+
+/* ---------- Dropdown ---------- */
+.dropdown-wrap{ position: relative; }
+.nav-icon-btn{ position: relative; }
+.dropdown{
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  min-width: 210px;
+  z-index: 200;
+  overflow: hidden;
+  animation: dropIn 0.12s ease;
+}
+.dropdown-bell{ min-width: 290px; }
+@keyframes dropIn{
+  from{ opacity:0; transform: translateY(-6px); }
+  to  { opacity:1; transform: translateY(0); }
+}
+.dropdown-header{
+  padding: 13px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-2);
+}
+.dropdown-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  text-align: left;
+  transition: background 0.1s;
+  font-family: inherit;
+}
+.dropdown-item:hover{ background: var(--bg-2); }
+.dropdown-danger{ color: var(--warn) !important; }
+.dropdown-danger:hover{ background: var(--warn-soft) !important; }
+.dropdown-divider{ height: 1px; background: var(--line-2); margin: 4px 0; }
+.notif-dot{
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  pointer-events: none;
+}
+.notif-icon{
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+.avatar-sm{
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #E8C9B5, #C9624A);
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ---------- Print / PDF ---------- */
+.print-only{ display: none; }
+.no-print{}
+@media print{
+  .print-only{
+    display: block;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .no-print{ display: none !important; }
+  .nav{ display: none !important; }
+  .page{ padding: 20px !important; max-width: 100% !important; }
+  body{ background: white !important; }
+  .result-banner,
+  .attribute-card,
+  .ing-card,
+  .product-card{
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .product-card{ break-inside: avoid; }
 }

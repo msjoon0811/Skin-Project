@@ -130,7 +130,6 @@ class FunctionalProductSearch:
         return (
             result[result["_score"] > 0]
             .sort_values("_score", ascending=False)
-            .drop_duplicates(subset=["ITEM_NAME"])  # 동일 제품명 중복 제거
             .head(top_k)[out_cols]
             .rename(columns={
                 "ITEM_NAME": "제품명",
