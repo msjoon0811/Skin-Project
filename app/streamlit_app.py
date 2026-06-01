@@ -17,7 +17,8 @@ from PIL import Image
 from torchvision import transforms
 import streamlit as st
 
-from src.models.cnn import MultiTaskSkinModel
+import timm
+from src.models.cnn import MultiTaskSkinModelCORAL
 from src.data.aihub_loader import MULTITASK_TARGETS, ANNOTATION_MAX
 from src.utils.face_crop import crop_faceparts, FACEPART_TARGETS
 from src.recommend.ingredient_map import (
@@ -30,9 +31,9 @@ from src.recommend.product_search import FunctionalProductSearch
 from src.recommend.explainer import build_skin_summary, explain_recommendation
 
 # ── 상수 ────────────────────────────────────────────────────────────
-CHECKPOINT = Path("checkpoints/multitask_v2_best.pth")
-_CHECKPOINT_FALLBACK = Path("checkpoints/multitask_best.pth")
-DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
+CHECKPOINT      = Path("checkpoints/multitask_v5_best.pth")
+ACNE_CHECKPOINT = Path("checkpoints/acne_best.pth")
+DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
 
 _NORMALIZE = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
@@ -60,6 +61,7 @@ _TTA_TRANSFORMS = [
 ]
 
 ATTR_KO = {
+    "acne":         "여드름",
     "wrinkle":      "주름",
     "pigmentation": "색소침착",
     "pore":         "모공",
@@ -80,6 +82,8 @@ def _level(val: float) -> str:
 
 # 폼 고민 → 속성 점수 (이미지 없을 때 휴리스틱)
 _CONCERN_ATTR_HINT: dict[str, dict[str, float]] = {
+    "여드름":   {"acne": 70},
+    "트러블":   {"acne": 55},
     "건조함":   {"dryness": 70},
     "주름":     {"wrinkle": 70},
     "색소침착": {"pigmentation": 70},
@@ -90,13 +94,27 @@ _CONCERN_ATTR_HINT: dict[str, dict[str, float]] = {
 
 # ── 캐시 리소스 ──────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="모델 로딩 중...")
-def load_model() -> MultiTaskSkinModel:
-    model = MultiTaskSkinModel(targets=MULTITASK_TARGETS)
-    ckpt = CHECKPOINT if CHECKPOINT.exists() else _CHECKPOINT_FALLBACK
-    if ckpt.exists():
-        model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
+def load_model() -> MultiTaskSkinModelCORAL:
+    model = MultiTaskSkinModelCORAL(
+        backbone_name="efficientnet_b0",
+        targets=MULTITASK_TARGETS,
+        dropout=0.4,
+    )
+    if CHECKPOINT.exists():
+        model.load_state_dict(torch.load(CHECKPOINT, map_location=DEVICE))
     else:
         st.warning("체크포인트 없음. 랜덤 가중치로 실행합니다.")
+    model.eval()
+    return model.to(DEVICE)
+
+
+@st.cache_resource(show_spinner=False)
+def load_acne_model():
+    if not ACNE_CHECKPOINT.exists():
+        return None
+    from src.models.cnn import AcneSeverityModel
+    model = AcneSeverityModel()
+    model.load_state_dict(torch.load(ACNE_CHECKPOINT, map_location=DEVICE))
     model.eval()
     return model.to(DEVICE)
 
@@ -116,19 +134,31 @@ def run_inference(image: Image.Image) -> tuple[dict, bool]:
     for part, targets in FACEPART_TARGETS.items():
         crop_img = crops.get(part, image)
 
-        # TTA: 여러 변형 적용 후 softmax 확률 평균
-        prob_sum: dict[str, torch.Tensor] = {}
+        # TTA: logit 평균 → CORAL sigmoid → 신뢰도 기반 등급 결정
+        logit_sum: dict[str, torch.Tensor] = {}
         with torch.no_grad():
             for tfm in _TTA_TRANSFORMS:
                 tensor  = tfm(crop_img).unsqueeze(0).to(DEVICE)
                 outputs = model(tensor)
                 for t in targets:
-                    prob = torch.softmax(outputs[t], dim=1)
-                    prob_sum[t] = prob_sum.get(t, torch.zeros_like(prob)) + prob
+                    logit_sum[t] = logit_sum.get(t, torch.zeros_like(outputs[t])) + outputs[t]
 
         for t in targets:
-            avg_prob = prob_sum[t] / len(_TTA_TRANSFORMS)
-            preds[t] = int(torch.argmax(avg_prob, dim=1).item())
+            avg_logit = logit_sum[t] / len(_TTA_TRANSFORMS)
+            sigs = torch.sigmoid(avg_logit[0])            # (K-1,)
+            preds[t] = float((sigs > 0.5).sum().item())
+
+    # acne 추론 (전체 이미지, TTA 3종 + 신뢰도 스케일링)
+    acne_model = load_acne_model()
+    if acne_model is not None:
+        logit_sum = torch.zeros(1, 4).to(DEVICE)
+        with torch.no_grad():
+            for tfm in _TTA_TRANSFORMS:
+                logit_sum += torch.softmax(acne_model(tfm(image).unsqueeze(0).to(DEVICE)), dim=1)
+        probs      = logit_sum / len(_TTA_TRANSFORMS)
+        grade      = float(probs.argmax(1).item())
+        confidence = float(probs.max().item())
+        preds["acne"] = grade * min(1.0, confidence * 1.5)
 
     return preds, face_detected
 
@@ -178,7 +208,7 @@ allergies  = st.multiselect(
 )
 concerns   = st.multiselect(
     "피부 고민 (최대 3개)",
-    ["여드름", "모공", "색소침착", "건조함", "주름", "탄력", "홍조", "트러블"],
+    ["여드름", "모공", "색소침착", "건조함", "주름", "탄력", "홍조"],
 )
 categories = st.multiselect(
     "선호 카테고리",

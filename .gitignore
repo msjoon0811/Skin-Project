@@ -38,3 +38,12 @@ Thumbs.db
 # 로그
 *.log
 logs/
+
+# 대용량 모델 체크포인트 (GitHub 100MB 제한 초과)
+checkpoints/acne_best.pth
+
+# Claude Code 내부 설정
+.claude/
+
+# AI Hub 원본 데이터셋 (대용량)
+028.한국인 피부상태 측정 데이터/

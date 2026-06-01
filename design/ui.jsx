@@ -32,7 +32,7 @@ const Icon = ({ name, size = 16, stroke = 1.6 }) => {
 
 const Brand = ({ size = 26 }) => (
   <div className="brand" style={{fontSize: size}}>
-    <span>skin</span>
+    <span>SkinLens</span>
     <span className="dot" />
   </div>
 );

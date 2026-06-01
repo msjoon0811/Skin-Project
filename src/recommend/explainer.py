@@ -1,11 +1,11 @@
 """룰베이스 추천 이유 템플릿 생성."""
 
 ATTR_KO: dict[str, str] = {
+    "acne":         "여드름",
     "wrinkle":      "주름",
     "pigmentation": "색소침착",
     "pore":         "모공",
     "dryness":      "건조도",
-    "sagging":      "탄력저하",
 }
 
 MID_THRESHOLD  = 35

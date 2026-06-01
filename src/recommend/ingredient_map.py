@@ -70,6 +70,10 @@ def normalize_cnn_output(raw_preds: dict) -> dict:
     if "chin_sagging" in raw_preds:
         out["sagging"] = raw_preds["chin_sagging"] / ANNOTATION_MAX["chin_sagging"] * 100
 
+    # acne: 별도 모델 출력 (0~3 등급) → 0~100
+    if "acne" in raw_preds:
+        out["acne"] = raw_preds["acne"] / 3 * 100
+
     return out
 
 
@@ -127,8 +131,15 @@ def get_recommended_ingredients(
             for ing in ATTRIBUTE_TO_RECOMMENDED[mid_key]:
                 priority[ing] = max(priority.get(ing, 0), score)
 
-    # CNN에 없는 여드름/트러블은 폼 고민에서 처리
-    if form_concerns and any(c in form_concerns for c in ("여드름", "트러블")):
+    # 여드름: CNN acne 점수 우선, 없으면 폼 고민으로 처리
+    acne_score = adj.get("acne", 0)
+    if acne_score >= HIGH_SCORE:
+        for ing in ATTRIBUTE_TO_RECOMMENDED["acne_high"]:
+            priority[ing] = max(priority.get(ing, 0), acne_score)
+    elif acne_score >= MID_SCORE:
+        priority["나이아신아마이드"] = max(priority.get("나이아신아마이드", 0), acne_score)
+    elif form_concerns and any(c in form_concerns for c in ("여드름", "트러블")):
+        # CNN 이미지 없을 때 폼 입력 폴백
         for ing in ATTRIBUTE_TO_RECOMMENDED["acne_high"]:
             priority[ing] = max(priority.get(ing, 0), 70)
 
