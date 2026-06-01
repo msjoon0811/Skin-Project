@@ -328,14 +328,14 @@ const Results = ({ data, onRestart, onHome }) => {
                     </div>
 
                     {/* 추천 이유 */}
-                    {r.desc && (
+                    {p.reason && (
                       <div style={{marginTop:10, fontFamily:'var(--serif-ko)', fontSize:13.5, lineHeight:1.75, color:'var(--ink-2)'}}>
-                        {r.desc}
+                        {p.reason}
                       </div>
                     )}
 
-                    {/* 추천 키워드 / 성분 */}
-                    {r.ingredients && !r.ingredients.startsWith('네이버') && (
+                    {/* 핵심 성분 */}
+                    {p.key_ingredient && (
                       <div style={{
                         marginTop:10, padding:'8px 12px', borderRadius:8,
                         background:'var(--good-soft)',
@@ -343,31 +343,31 @@ const Results = ({ data, onRestart, onHome }) => {
                       }}>
                         <Icon name="leaf" size={13} style={{flexShrink:0, marginTop:2, color:'var(--good)'}}/>
                         <div>
-                          <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--good)', letterSpacing:'0.06em', marginBottom:3}}>추천 키워드</div>
-                          <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--good)', lineHeight:1.6}}>{r.ingredients}</div>
+                          <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--good)', letterSpacing:'0.06em', marginBottom:3}}>이 피부에 맞는 성분</div>
+                          <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--good)', lineHeight:1.6}}>{p.key_ingredient}</div>
                         </div>
                       </div>
                     )}
 
+                    {/* 제품 설명 */}
+                    {p.description && (
+                      <div style={{
+                        marginTop:10, padding:'8px 12px', borderRadius:8,
+                        background:'var(--surface)',
+                      }}>
+                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--ink-muted)', letterSpacing:'0.06em', marginBottom:3}}>제품 설명</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{p.description}</div>
+                      </div>
+                    )}
+
                     {/* 사용법 */}
-                    {r.usage && (
+                    {p.how_to_use && (
                       <div style={{
                         marginTop:10, padding:'8px 12px', borderRadius:8,
                         background:'var(--surface)', borderLeft:'3px solid var(--accent)',
                       }}>
                         <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--accent-ink)', letterSpacing:'0.06em', marginBottom:3}}>사용법</div>
-                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{r.usage.replace('사용법: ', '')}</div>
-                      </div>
-                    )}
-
-                    {/* 주의 성분 */}
-                    {r.avoid && !r.avoid.startsWith('사용법') && (
-                      <div style={{
-                        marginTop:10, padding:'8px 12px', borderRadius:8,
-                        background:'var(--warn-soft)',
-                      }}>
-                        <div style={{fontSize:10.5, fontFamily:'var(--mono)', color:'var(--warn)', letterSpacing:'0.06em', marginBottom:3}}>주의 성분</div>
-                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--warn)', lineHeight:1.65}}>{r.avoid}</div>
+                        <div style={{fontSize:12.5, fontFamily:'var(--serif-ko)', color:'var(--ink-2)', lineHeight:1.7}}>{p.how_to_use}</div>
                       </div>
                     )}
 

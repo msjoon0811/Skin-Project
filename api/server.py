@@ -100,6 +100,132 @@ app.add_middleware(
 _model = None
 _search_engine = None
 
+async def _naver_search(query: str) -> dict:
+    """네이버 쇼핑 API로 검색어 기반 상위 제품 조회."""
+    import httpx, re as _re
+    client_id = os.getenv("NAVER_CLIENT_ID", "")
+    secret    = os.getenv("NAVER_CLIENT_SECRET", "")
+    if not client_id or not secret:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as hc:
+            resp = await hc.get(
+                "https://openapi.naver.com/v1/search/shop.json",
+                params={"query": query, "display": 3, "sort": "sim"},
+                headers={"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": secret},
+            )
+            if resp.status_code != 200:
+                return {}
+            items = resp.json().get("items", [])
+            if not items:
+                return {}
+            # 제목에서 HTML 태그 제거
+            item = items[0]
+            title = _re.sub(r"<[^>]+>", "", item.get("title", ""))
+            brand = item.get("brand", "") or item.get("maker", "")
+            return {
+                "name":  title,
+                "brand": brand,
+                "image": item.get("image", ""),
+                "price": f"{int(item.get('lprice', 0)):,}원" if item.get("lprice") else "",
+                "link":  item.get("link", ""),
+            }
+    except Exception:
+        return {}
+
+
+async def _oliveyoung_recommend(
+    fe_attrs: list[dict],
+    concerns: list[str],
+    skin_label: str,
+    rec_names: list[str],
+) -> list[dict]:
+    """Claude가 네이버 검색어 3개 생성 → 네이버 API로 실제 제품 조회."""
+    client = _claude_client()
+    if not client:
+        return []
+
+    attr_text = ", ".join(
+        f"{a['name']} {a['value']}({'높음' if a['level']=='hi' else '낮음' if a['level']=='lo' else '보통'})"
+        for a in fe_attrs
+    )
+    concerns_text = ", ".join(concerns) if concerns else "없음"
+    rec_text = ", ".join(rec_names[:4]) if rec_names else "없음"
+
+    # Step 1: Claude가 네이버 검색어 3개 + 설명/사용법 생성
+    prompt = f"""피부 분석 결과를 바탕으로 네이버 쇼핑 검색어 3개를 만들어주세요.
+각 검색어는 서로 다른 제품 타입(토너/세럼/크림 등)이어야 합니다.
+
+피부 분석:
+- 피부 타입: {skin_label}
+- 속성 점수: {attr_text}
+- 피부 고민: {concerns_text}
+- 권장 성분: {rec_text}
+
+검색어 조건:
+- "[핵심 성분] [제품 타입]" 형태로 작성 (예: "히알루론산 토너", "레티놀 세럼", "세라마이드 크림")
+- 피부 고민에 가장 효과적인 성분 + 적합한 제품 타입 조합
+- 3개가 서로 다른 스텝(토너→세럼→크림 등 루틴)을 커버하도록
+
+반드시 JSON 배열로만 응답하세요:
+[
+  {{
+    "query": "네이버 검색어",
+    "key_ingredient": "핵심 성분",
+    "product_type": "제품 타입",
+    "description": "이 성분/제품 타입이 이 피부에 좋은 이유 1~2문장",
+    "how_to_use": "이 타입 제품의 일반적인 사용법 1문장",
+    "reason": "이 피부에 맞는 이유 1문장"
+  }},
+  {{"query":"...","key_ingredient":"...","product_type":"...","description":"...","how_to_use":"...","reason":"..."}},
+  {{"query":"...","key_ingredient":"...","product_type":"...","description":"...","how_to_use":"...","reason":"..."}}
+]"""
+
+    try:
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+
+        import re as _re, json as _json, asyncio as _asyncio
+        from urllib.parse import quote as _quote
+
+        text = _re.sub(r"```(?:json)?", "", text).strip()
+        m = _re.search(r"\[[\s\S]+\]", text)
+        if not m:
+            return []
+
+        plans = _json.loads(m.group())
+
+        # Step 2: 각 검색어로 네이버 API 병렬 호출
+        queries = [p.get("query", "") for p in plans[:3]]
+        naver_results = await _asyncio.gather(*[_naver_search(q) for q in queries])
+
+        result = []
+        for i, (plan, naver) in enumerate(zip(plans[:3], naver_results)):
+            query = plan.get("query", "")
+            result.append({
+                "brand":          naver.get("brand", ""),
+                "name":           naver.get("name", query),
+                "price":          naver.get("price", ""),
+                "image":          naver.get("image", ""),
+                "link":           naver.get("link") or f"https://search.shopping.naver.com/search/all?query={_quote(query)}",
+                "match":          93 - i * 4,
+                "tags":           concerns[:2] if concerns else [skin_label],
+                "reason":         plan.get("reason", ""),
+                "key_ingredient": plan.get("key_ingredient", ""),
+                "description":    plan.get("description", ""),
+                "how_to_use":     plan.get("how_to_use", ""),
+                "shot":           "",
+            })
+        return result
+
+    except Exception:
+        logger.exception("제품 추천 실패")
+        return []
+
 
 def _get_model():
     global _model
@@ -170,7 +296,7 @@ def _tta_transforms():
     return [
         transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), norm]),
         transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=0.15), transforms.ToTensor(), norm]),
-        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=-0.15), transforms.ToTensor(), norm]),
+        transforms.Compose([transforms.Resize((224, 224)), transforms.ColorJitter(brightness=(0.7, 0.9)), transforms.ToTensor(), norm]),
     ]
 
 
@@ -452,46 +578,15 @@ async def analyze(
     )
     avoid_names = get_avoid_ingredients(allergy_list, is_pregnant)
 
-    # ⑥ 제품 검색
+    # ⑥ 제품 검색 — 올리브영 베스트 + Claude 매칭
     search_concerns = [_CONCERN_NORMALIZE.get(c, c) for c in raw_concerns]
     uv_exposure     = form.get("uvExposure", form.get("uv_exposure", "보통"))
     products: list[dict] = []
 
-    # 네이버 쇼핑 우선 (구매 가능 제품 + 이미지/가격/링크)
-    if search_concerns or raw_concerns:
-        try:
-            products = await _naver_product_recommend(search_concerns, raw_concerns)
-        except Exception:
-            logger.exception("네이버 제품 추천 실패")
-
-    # 네이버 실패/키 없을 때 식약처 DB 폴백
-    if not products and search_concerns:
-        try:
-            df = _get_search().search(
-                concerns=search_concerns,
-                categories=[],
-                is_pregnant=is_pregnant,
-                uv_exposure=uv_exposure,
-                top_k=3,
-            )
-            for _, row in df.iterrows():
-                raw_score = float(row.get("점수", 1))
-                products.append({
-                    "brand":  str(row.get("업체명", "")),
-                    "name":   str(row.get("제품명", "")),
-                    "match":  int(min(99, 75 + raw_score * 3)),
-                    "tags":   raw_concerns[:2],
-                    "reason": explain_recommendation(
-                        cnn_attrs, sensitivity_class, rec_names, avoid_names,
-                        row["제품명"], rank=_ + 1
-                    ),
-                    "price": "",
-                    "image": "",
-                    "link":  "",
-                    "shot":  "",
-                })
-        except Exception:
-            logger.exception("식약처 제품 검색 실패")
+    try:
+        products = await _oliveyoung_recommend(fe_attrs, raw_concerns, skin_label, rec_names)
+    except Exception:
+        logger.exception("올리브영 추천 실패")
 
     summary = build_skin_summary(cnn_attrs, sensitivity_class)
 

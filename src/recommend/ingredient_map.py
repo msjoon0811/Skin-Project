@@ -141,6 +141,11 @@ def get_recommended_ingredients(
         for ing in ATTRIBUTE_TO_RECOMMENDED["sensitive"]:
             priority[ing] = max(priority.get(ing, 0), 75)
 
+    # 점수가 낮아 아무것도 안 잡힌 경우 → 피부 타입 무관 기본 케어 성분 보장
+    if not priority:
+        for ing in ["글리세린", "판테놀", "히알루론산"]:
+            priority[ing] = 30
+
     return [ing for ing, _ in sorted(priority.items(), key=lambda x: -x[1])]
 
 
