@@ -8,6 +8,7 @@ Multi-task: 7개 속성 독립 head (각 head는 해당 속성의 num_classes)
 import torch
 import torch.nn as nn
 import timm
+import torchvision.models as tvm
 
 from src.data.aihub_loader import ANNOTATION_MAX, MULTITASK_TARGETS
 
@@ -127,3 +128,29 @@ class MultiTaskSkinModelCORAL(nn.Module):
             t: (torch.sigmoid(lg) > 0.5).sum(dim=1)
             for t, lg in logits.items()
         }
+
+
+class AcneSeverityModel(nn.Module):
+    """
+    EfficientNetV2-M 기반 여드름 심각도 4-class 분류.
+    팀원이 Kaggle + AI Hub 데이터로 학습 (80 epochs, k-fold).
+
+    클래스: 0=없음, 1=경증, 2=중간, 3=심함
+    """
+
+    def __init__(self):
+        super().__init__()
+        base = tvm.efficientnet_v2_m(weights=None)
+        base.classifier = nn.Sequential(
+            nn.Linear(1280, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 4),
+        )
+        self.backbone = base
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.backbone(x)

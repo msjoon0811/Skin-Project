@@ -99,9 +99,8 @@ const Results = ({ data, onRestart, onHome }) => {
                     <div className="name">{a.name}</div>
                     <div className="muted" style={{fontSize:11}}>{a.desc}</div>
                   </div>
-                  <span className="val">{a.value}</span>
-                  <span className={"tag tag-" + a.level}>
-                    {a.level === 'hi' ? 'HIGH' : a.level === 'lo' ? 'LOW' : 'MID'}
+                  <span className={"tag tag-" + a.level} style={{fontSize:13, padding:'3px 10px'}}>
+                    {a.level === 'hi' ? '높음' : a.level === 'lo' ? '낮음' : '중간'}
                   </span>
                 </div>
               ))}
@@ -126,7 +125,9 @@ const Results = ({ data, onRestart, onHome }) => {
                     : 'linear-gradient(90deg, var(--bg-2), var(--ink-faint))'
                 }}/>
               </div>
-              <div className="val">{a.value}/100</div>
+              <span className={"tag tag-" + a.level} style={{minWidth:38, textAlign:'center', fontSize:12}}>
+                {a.level === 'hi' ? '높음' : a.level === 'lo' ? '낮음' : '중간'}
+              </span>
             </div>
           ))}
         </div>
@@ -451,8 +452,8 @@ const Results = ({ data, onRestart, onHome }) => {
             return (
               <div>
                 <div style={{fontFamily:'var(--serif-ko)', fontSize:17, lineHeight:1.8, color:'var(--ink)', maxWidth:820}}>
-                  {dry && <span>수분 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{dry.value}%</span></span>}
-                  {sens && <span>, 민감도 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{sens.value}%</span></span>}
+                  {dry && <span>수분 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{dry.level === 'hi' ? '충분' : dry.level === 'lo' ? '부족' : '보통'}</span></span>}
+                  {sens && <span>, 민감도 <span style={{color:'var(--accent-ink)', fontWeight:600}}>{sens.level === 'hi' ? '높음' : sens.level === 'lo' ? '낮음' : '보통'}</span></span>}
                   {rec1 && rec2 && <span> — <span style={{borderBottom:'2px solid var(--accent)'}}>{rec1.name} + {rec2.name}</span> 조합을 우선 시도해보세요.</span>}
                   {!rec1 && <span> — 피부 고민을 선택하면 더 정확한 성분을 추천해드릴 수 있어요.</span>}
                 </div>

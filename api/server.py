@@ -98,6 +98,9 @@ app.add_middleware(
 # ── ML 모델 (지연 로딩 + 캐시) ────────────────────────────────────────
 
 _model = None
+_acne_model = None
+_search_engine = None
+
 
 async def _naver_search(query: str) -> dict:
     """네이버 쇼핑 API로 검색어 기반 상위 제품 조회."""
@@ -118,7 +121,6 @@ async def _naver_search(query: str) -> dict:
             items = resp.json().get("items", [])
             if not items:
                 return {}
-            # 제목에서 HTML 태그 제거
             item = items[0]
             title = _re.sub(r"<[^>]+>", "", item.get("title", ""))
             brand = item.get("brand", "") or item.get("maker", "")
@@ -151,7 +153,6 @@ async def _oliveyoung_recommend(
     concerns_text = ", ".join(concerns) if concerns else "없음"
     rec_text = ", ".join(rec_names[:4]) if rec_names else "없음"
 
-    # Step 1: Claude가 네이버 검색어 3개 + 설명/사용법 생성
     prompt = f"""피부 분석 결과를 바탕으로 네이버 쇼핑 검색어 3개를 만들어주세요.
 각 검색어는 서로 다른 제품 타입(토너/세럼/크림 등)이어야 합니다.
 
@@ -198,7 +199,6 @@ async def _oliveyoung_recommend(
 
         plans = _json.loads(m.group())
 
-        # Step 2: 각 검색어로 네이버 API 병렬 호출
         queries = [p.get("query", "") for p in plans[:3]]
         naver_results = await _asyncio.gather(*[_naver_search(q) for q in queries])
 
@@ -272,6 +272,34 @@ def _get_model():
     return _model
 
 
+def _get_acne_model():
+    global _acne_model
+    if _acne_model is None:
+        import torch
+        _ACNE_CKPTS = [
+            Path("checkpoints/acne_best.pth"),
+            Path("acne_best.pth"),
+        ]
+        ckpt = next((p for p in _ACNE_CKPTS if p.exists()), None)
+        if ckpt:
+            from src.models.cnn import AcneSeverityModel
+            model = AcneSeverityModel()
+            model.load_state_dict(torch.load(ckpt, map_location="cpu"))
+            model.eval()
+            _acne_model = model
+            logger.info("Acne 체크포인트 로드: %s", ckpt)
+    return _acne_model
+
+
+def _get_search():
+    global _search_engine
+    if _search_engine is None:
+        from src.recommend.product_search import FunctionalProductSearch
+        _search_engine = FunctionalProductSearch()
+    return _search_engine
+
+
+
 def _ml_available() -> bool:
     try:
         import torch  # noqa: F401
@@ -322,12 +350,27 @@ def _run_inference(img_bytes: bytes) -> tuple[dict, bool]:
         for t in targets:
             avg = prob_sum[t] / len(tta)
             if is_coral:
-                # CORAL 예측: sigmoid > 0.5 인 개수 = 등급
-                raw[t] = int((avg > 0.5).sum(dim=1).item())
+                raw[t] = float((avg[0] > 0.5).sum().item())
             else:
                 raw[t] = int(torch.argmax(avg, dim=1).item())
 
-    return normalize_cnn_output(raw), face_detected
+    normalized = normalize_cnn_output(raw)
+
+    # acne 추론 (전체 이미지, TTA 3종 + 신뢰도 스케일링)
+    acne_model = _get_acne_model()
+    if acne_model is not None:
+        import torch
+        logit_sum = torch.zeros(1, 4)
+        with torch.no_grad():
+            for tfm in tta:
+                logit_sum += torch.softmax(acne_model(tfm(img).unsqueeze(0)), dim=1)
+        probs = logit_sum / len(tta)
+        grade      = float(probs.argmax(1).item())
+        confidence = float(probs.max().item())
+        # confidence < 0.67이면 감쇄: 0.25(완전불확실)→37.5%, 0.5→75%, 0.67+→100%
+        normalized["acne"] = grade / 3 * 100 * min(1.0, confidence * 1.5)
+
+    return normalized, face_detected
 
 
 # ── 폼 유효성 검사 헬퍼 ───────────────────────────────────────────────
@@ -361,9 +404,9 @@ _CONCERN_HINT: dict[str, dict[str, float]] = {
     "탄력":     {"sagging": 70},
     "각질":     {"dryness": 60},
     "유분과다": {"dryness": 10, "pore": 40},
-    "홍조":     {"dryness": 50},   # 민감·건조 연관
-    "트러블":   {"pore": 55},      # 피지·모공 연관
-    "여드름":   {"pore": 60},      # 피지·모공 연관
+    "홍조":     {"dryness": 50},
+    "트러블":   {"acne": 55, "pore": 45},
+    "여드름":   {"acne": 70, "pore": 50},
 }
 
 
@@ -550,7 +593,7 @@ async def analyze(
     # 생활습관 델타를 CNN 속성에 반영한 조정 점수 사용 (이미지 불검출 속성 보완)
     lifestyle_adjusted_attrs = {
         k: min(100.0, max(0.0, cnn_attrs.get(k, 0.0) + lifestyle_deltas.get(k, 0.0)))
-        for k in ("wrinkle", "pigmentation", "pore", "dryness", "sagging")
+        for k in ("wrinkle", "pigmentation", "pore", "dryness", "sagging", "acne")
     }
     raw_concerns  = _parse_concerns(form.get("concerns", []))
     age_group     = form.get("ageGroup", form.get("age_group"))
