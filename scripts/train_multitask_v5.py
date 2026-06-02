@@ -163,6 +163,12 @@ def main():
         coral_mode=True,
     )
 
+    import json
+    history_path = Path(SAVE_DIR) / "history_v5.json"
+    with open(history_path, "w", encoding="utf-8") as f:
+        json.dump({"version": "v5", "best_acc": best_acc, "history": history}, f, indent=2)
+    print(f"     history 저장: {history_path}")
+
     print(f"\n[v5] 완료: best_mean_acc={best_acc:.4f}")
     print(f"     비교: v2(B0+CE)=0.5170, v5(B0+CORAL)={best_acc:.4f}")
 

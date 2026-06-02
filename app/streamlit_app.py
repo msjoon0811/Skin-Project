@@ -12,7 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
-import pandas as pd
 from PIL import Image
 from torchvision import transforms
 import streamlit as st
@@ -27,7 +26,6 @@ from src.recommend.ingredient_map import (
     get_recommended_ingredients,
     get_avoid_ingredients,
 )
-from src.recommend.product_search import FunctionalProductSearch
 from src.recommend.explainer import build_skin_summary, explain_recommendation
 
 # ── 상수 ────────────────────────────────────────────────────────────
@@ -117,11 +115,6 @@ def load_acne_model():
     model.load_state_dict(torch.load(ACNE_CHECKPOINT, map_location=DEVICE))
     model.eval()
     return model.to(DEVICE)
-
-
-@st.cache_resource(show_spinner="제품 DB 로딩 중...")
-def load_search_engine() -> FunctionalProductSearch:
-    return FunctionalProductSearch()
 
 
 # ── 추론 함수 ────────────────────────────────────────────────────────
@@ -262,22 +255,6 @@ if st.button("피부 분석 및 추천 받기", type="primary", use_container_wi
     )
     avoid       = get_avoid_ingredients(allergies, is_pregnant)
 
-    # 제품 검색
-    products = pd.DataFrame()
-    if concerns or categories:
-        with st.spinner("제품 검색 중..."):
-            try:
-                engine   = load_search_engine()
-                products = engine.search(
-                    concerns=concerns,
-                    categories=categories,
-                    is_pregnant=is_pregnant,
-                    uv_exposure=uv_exposure,
-                    top_k=5,
-                )
-            except Exception as e:
-                st.warning(f"제품 검색 오류: {e}")
-
     # ── 결과 출력 ──────────────────────────────────────────────────
     st.divider()
     st.subheader("분석 결과")
@@ -324,33 +301,8 @@ if st.button("피부 분석 및 추천 받기", type="primary", use_container_wi
     if "기타" in allergies:
         st.info("'기타' 알레르기 성분은 개인마다 달라 자동 처리가 어렵습니다. 제품 구매 전 전성분을 직접 확인하세요.")
 
-    # 추천 제품
-    st.subheader("추천 제품 (식약처 기능성화장품)")
-
-    if products.empty:
-        st.info(
-            "조건에 맞는 등록 제품을 찾지 못했습니다. "
-            "피부 고민 또는 선호 카테고리를 추가해 보세요."
-        )
-    else:
-        for _, row in products.iterrows():
-            with st.container(border=True):
-                st.markdown(f"**{row['제품명']}**")
-                st.caption(f"제조사: {row['업체명']}")
-                if pd.notna(row.get("효능")) and str(row["효능"]).strip():
-                    st.caption(f"효능 고시: {row['효능']}")
-                if pd.notna(row.get("SPF")) and str(row["SPF"]).strip():
-                    st.caption(f"SPF: {row['SPF']}")
-                st.markdown(
-                    "_" + explain_recommendation(
-                        attributes, sensitivity_class,
-                        recommended, avoid, row["제품명"],
-                    ) + "_"
-                )
-
     # 데이터 출처 안내
     st.divider()
     st.caption(
-        "데이터 출처: AI Hub 한국인 피부상태 측정 데이터 (비상업 연구·교육 목적) | "
-        "식약처 기능성화장품 보고품목정보 (공공데이터포털 Open API)"
+        "데이터 출처: AI Hub 한국인 피부상태 측정 데이터 (비상업 연구·교육 목적)"
     )
