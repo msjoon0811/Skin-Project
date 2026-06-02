@@ -99,7 +99,6 @@ app.add_middleware(
 
 _model = None
 _acne_model = None
-_search_engine = None
 
 
 async def _naver_search(query: str) -> dict:
@@ -289,15 +288,6 @@ def _get_acne_model():
             _acne_model = model
             logger.info("Acne 체크포인트 로드: %s", ckpt)
     return _acne_model
-
-
-def _get_search():
-    global _search_engine
-    if _search_engine is None:
-        from src.recommend.product_search import FunctionalProductSearch
-        _search_engine = FunctionalProductSearch()
-    return _search_engine
-
 
 
 def _ml_available() -> bool:

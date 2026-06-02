@@ -135,6 +135,12 @@ def main(sanity_check: bool = False):
         target_name=TARGET_COL,
     )
 
+    import json
+    history_path = Path(SAVE_DIR) / f"history_baseline_{TARGET_COL}.json"
+    with open(history_path, "w", encoding="utf-8") as f:
+        json.dump({"target": TARGET_COL, "best_acc": best_acc, "history": history}, f, indent=2)
+    print(f"     history 저장: {history_path}")
+
     print(f"\n완료: best_val_acc={best_acc:.4f} (random={1/NUM_CLASSES:.4f})")
 
 

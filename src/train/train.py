@@ -155,6 +155,7 @@ def train_multitask(
             "train_loss": train_loss,
             "val_mean_acc": mean_acc,
             "val_mean_f1":  mean_f1,
+            "per_task_acc": {t: val_metrics[t]["accuracy"] for t in targets if t in val_metrics},
         }
         history.append(log)
         print(
